@@ -17,6 +17,7 @@ let latestPlayers = [];
 let latestSession = null;
 
 const STORAGE_KEY = 'lastEmberUser';
+const PLACEHOLDER_NARRATIVE = 'The story is being written…';
 
 // ---------------- Utility ----------------
 function $(id) { return document.getElementById(id); }
@@ -43,6 +44,19 @@ function applyTheme(mode) {
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+// Pulls the real server-side error message out of a supabase-js
+// FunctionsHttpError, since error.message alone is usually just
+// the generic "Edge Function returned a non-2xx status code".
+async function extractFunctionError(error, fallbackData) {
+  if (fallbackData?.error) return fallbackData.error;
+  try {
+    if (error?.context && typeof error.context.json === 'function') {
+      const body = await error.context.json();
+      if (body?.error) return body.error;
+    }
+  } catch { /* ignore, fall through */ }
+  return error?.message || 'Unknown error.';
 }
 
 function setCurrentUserFromProfile(profile) {
@@ -187,12 +201,19 @@ $('btn-create-session')?.addEventListener('click', async () => {
     await sb.from('profiles').update({ active_session_id: newSession.id }).eq('id', currentUser.uid);
     currentUser.activeSessionId = newSession.id;
 
-    const { error: fnErr } = await sb.functions.invoke('generate-story', {
+    enterGame(newSession.id);
+
+    // Kick off the story async — don't block entering the game screen
+    // on it, and don't treat a kickoff failure as fatal: the "Start
+    // the tale" retry button (see renderGame) covers that case.
+    const { data: fnData, error: fnErr } = await sb.functions.invoke('generate-story', {
       body: { sessionId: newSession.id, userId: currentUser.uid, kickoff: true },
     });
-    if (fnErr) throw fnErr;
-
-    enterGame(newSession.id);
+    if (fnErr) {
+      const msg = await extractFunctionError(fnErr, fnData);
+      console.error('Kickoff failed:', msg, fnErr);
+      toast('The opening scene failed to generate — use "Start the tale" to retry.');
+    }
   } catch (err) {
     console.error(err);
     toast('Could not create a session: ' + (err.message || err));
@@ -201,6 +222,11 @@ $('btn-create-session')?.addEventListener('click', async () => {
 
 async function joinSession(sessionId) {
   try {
+    // Already in this session? Just resume instead of trying to insert again.
+    const { data: existing } = await sb.from('players').select('user_id')
+      .eq('session_id', sessionId).eq('user_id', currentUser.uid).maybeSingle();
+    if (existing) { enterGame(sessionId); return; }
+
     const { data: sessionRow } = await sb.from('sessions').select('turn_order,status').eq('id', sessionId).single();
     if (!sessionRow || sessionRow.status !== 'active') throw new Error('That session is no longer open.');
 
@@ -256,6 +282,25 @@ function enterGame(sessionId) {
     .subscribe();
 }
 
+// If a session's opening scene never generated (kickoff failed silently
+// at some point), anyone at the table can retry it with this button —
+// it just re-calls generate-story with kickoff: true.
+async function retryKickoff() {
+  const btn = $('btn-start-tale');
+  if (btn) { btn.disabled = true; btn.textContent = 'Writing the opening scene…'; }
+  const { data, error } = await sb.functions.invoke('generate-story', {
+    body: { sessionId: currentSessionId, userId: currentUser.uid, kickoff: true },
+  });
+  if (error) {
+    const msg = await extractFunctionError(error, data);
+    console.error('Retry kickoff failed:', msg, error);
+    toast('Still failed: ' + msg);
+    if (btn) { btn.disabled = false; btn.textContent = 'Start the tale'; }
+  }
+  // On success, the realtime subscription will push the update and
+  // renderGame() will replace this button with the real story.
+}
+
 function renderGame() {
   if (!latestSession) return;
 
@@ -277,9 +322,17 @@ function renderGame() {
   const currentTurnUid = latestSession.turn_order ? latestSession.turn_order[latestSession.current_turn_index] : null;
   const currentPlayer = latestPlayers.find(p => p.user_id === currentTurnUid);
   const turnEl = $('turn-indicator');
+
+  const choices = latestSession.story_choices || [];
+  const isStuck = latestSession.status === 'active'
+    && !choices.length
+    && (latestSession.story_narrative || '').trim() === PLACEHOLDER_NARRATIVE;
+
   if (turnEl) {
     if (latestSession.status === 'completed') {
       turnEl.textContent = 'The tale has ended.';
+    } else if (isStuck) {
+      turnEl.textContent = 'The opening scene never generated.';
     } else if (currentPlayer) {
       turnEl.textContent = currentTurnUid === currentUser.uid ? 'It is your turn.' : `Waiting on ${currentPlayer.display_name}…`;
     }
@@ -288,11 +341,14 @@ function renderGame() {
   const storyTextEl = $('story-text');
   if (storyTextEl) storyTextEl.textContent = latestSession.story_narrative || '';
 
-  const choices = latestSession.story_choices || [];
   const isMyTurn = currentTurnUid === currentUser.uid && latestSession.status === 'active';
   const choicesEl = $('choices');
   if (choicesEl) {
-    if (!choices.length || latestSession.status !== 'active') {
+    if (isStuck) {
+      // Anyone at the table can retry — there's no valid "current turn" yet.
+      choicesEl.innerHTML = `<button id="btn-start-tale" class="choice-btn">Start the tale</button>`;
+      $('btn-start-tale')?.addEventListener('click', retryKickoff);
+    } else if (!choices.length || latestSession.status !== 'active') {
       choicesEl.innerHTML = '';
     } else {
       choicesEl.innerHTML = choices.map((c, i) => `
@@ -304,20 +360,25 @@ function renderGame() {
     }
   }
   const statusEl = $('story-status');
-  if (statusEl) statusEl.textContent = isMyTurn ? '' : (latestSession.status === 'active' ? 'Only the player whose turn it is can choose.' : '');
+  if (statusEl) {
+    statusEl.textContent = isStuck
+      ? ''
+      : (isMyTurn ? '' : (latestSession.status === 'active' ? 'Only the player whose turn it is can choose.' : ''));
+  }
 }
 
 async function submitChoice(choiceIndex) {
   $('choices')?.querySelectorAll('button').forEach(b => b.disabled = true);
   const statusEl = $('story-status');
   if (statusEl) statusEl.textContent = 'The storyteller is weaving the outcome…';
-  const { error } = await sb.functions.invoke('generate-story', {
+  const { data, error } = await sb.functions.invoke('generate-story', {
     body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
   });
   if (error) {
-    console.error(error);
+    const msg = await extractFunctionError(error, data);
+    console.error('submitChoice failed:', msg, error);
     if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
-    toast('Story generation failed: ' + error.message);
+    toast('Story generation failed: ' + msg);
   }
 }
 
@@ -335,10 +396,13 @@ function showEndScreen(session) {
   if (!autoResetTimer) {
     autoResetTimer = setTimeout(async () => {
       autoResetTimer = null;
-      const { error } = await sb.functions.invoke('reset-session', {
+      const { data, error } = await sb.functions.invoke('reset-session', {
         body: { sessionId: currentSessionId, userId: currentUser.uid },
       });
-      if (error) console.error(error);
+      if (error) {
+        const msg = await extractFunctionError(error, data);
+        console.error('Auto reset-session failed:', msg, error);
+      }
     }, 6000);
   }
 }
@@ -364,12 +428,9 @@ $('btn-reset-confirm')?.addEventListener('click', async () => {
     body: { sessionId, userId: currentUser.uid, password: $('reset-password')?.value },
   });
   if (error) {
-    // supabase-js puts the function's own JSON error body on error.context in most
-    // versions — fall back through a few places so the real message actually shows,
-    // instead of always just "Incorrect password."
-    const serverMessage = data?.error || error.context?.body?.error || error.message;
-    console.error('master-reset failed:', error, data);
-    if (errEl) errEl.textContent = serverMessage || 'Something went wrong — check the console for details.';
+    const msg = await extractFunctionError(error, data);
+    console.error('master-reset failed:', msg, error);
+    if (errEl) errEl.textContent = msg || 'Something went wrong — check the console for details.';
   } else {
     $('modal-reset')?.classList.add('hidden');
     toast('Session reset.');
