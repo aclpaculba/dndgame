@@ -233,11 +233,18 @@ button, input { font-family: inherit; }
 /* ---------- Game screen ---------- */
 .game-main {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px 1fr 300px;
   gap: 0;
   min-height: calc(100vh - 61px);
 }
-@media (max-width: 760px) { .game-main { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) {
+  .game-main { grid-template-columns: 220px 1fr; }
+  .activity-panel { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--line); }
+}
+@media (max-width: 760px) {
+  .game-main { grid-template-columns: 1fr; }
+  .activity-panel { grid-column: auto; }
+}
 
 .player-panel {
   background: var(--bg-panel);
@@ -299,6 +306,83 @@ button, input { font-family: inherit; }
 .choice-btn:hover:not(:disabled) { border-color: var(--gold); background: var(--bg-panel-raised); }
 .choice-btn:disabled { cursor: default; opacity: 0.5; }
 .story-status { color: var(--parchment-dim); font-size: 0.85rem; min-height: 1em; }
+
+/* ---------- Activity panel (story log + chat) ---------- */
+.activity-panel {
+  background: var(--bg-panel);
+  border-left: 1px solid var(--line);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+}
+.activity-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.activity-section h3 {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  color: var(--gold);
+  margin: 0 0 10px;
+}
+.story-log {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.log-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 0.82rem;
+}
+.log-player { color: var(--parchment); font-weight: 600; }
+.log-choice { color: var(--parchment-dim); font-style: italic; margin-top: 2px; }
+.log-party { border-color: var(--gold-dim); color: var(--gold); font-size: 0.8rem; }
+.log-empty { border: none; padding: 0; }
+
+.chat-section { flex: 1; min-height: 0; }
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  min-height: 120px;
+  padding-right: 4px;
+}
+.chat-message {
+  background: var(--bg-panel-raised);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+.chat-message.own { border: 1px solid var(--gold-dim); }
+.chat-author { color: var(--gold); font-weight: 600; margin-right: 6px; font-size: 0.78rem; }
+.chat-text { color: var(--parchment); }
+.chat-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.chat-form input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  color: var(--parchment);
+  font-size: 0.85rem;
+}
 
 /* ---------- End screen ---------- */
 #screen-end.active {

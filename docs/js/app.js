@@ -45,9 +45,6 @@ function applyTheme(mode) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-// Pulls the real server-side error message out of a supabase-js
-// FunctionsHttpError, since error.message alone is usually just
-// the generic "Edge Function returned a non-2xx status code".
 async function extractFunctionError(error, fallbackData) {
   if (fallbackData?.error) return fallbackData.error;
   try {
@@ -95,9 +92,6 @@ $('form-name')?.addEventListener('submit', async (e) => {
   }
 });
 
-// On page load, if a name was saved in this browser, re-fetch that
-// profile (in case it changed elsewhere) and skip straight to the
-// lobby instead of asking again.
 async function tryResumeFromStorage() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) { showScreen('screen-auth'); return; }
@@ -203,9 +197,6 @@ $('btn-create-session')?.addEventListener('click', async () => {
 
     enterGame(newSession.id);
 
-    // Kick off the story async — don't block entering the game screen
-    // on it, and don't treat a kickoff failure as fatal: the "Start
-    // the tale" retry button (see renderGame) covers that case.
     const { data: fnData, error: fnErr } = await sb.functions.invoke('generate-story', {
       body: { sessionId: newSession.id, userId: currentUser.uid, kickoff: true },
     });
@@ -222,7 +213,6 @@ $('btn-create-session')?.addEventListener('click', async () => {
 
 async function joinSession(sessionId) {
   try {
-    // Already in this session? Just resume instead of trying to insert again.
     const { data: existing } = await sb.from('players').select('user_id')
       .eq('session_id', sessionId).eq('user_id', currentUser.uid).maybeSingle();
     if (existing) { enterGame(sessionId); return; }
@@ -274,6 +264,43 @@ async function refreshGameState() {
   if (latestSession.status === 'completed') showEndScreen(latestSession);
 }
 
+async function refreshChatMessages() {
+  if (!currentSessionId) return;
+  const { data: messages } = await sb.from('messages').select('*')
+    .eq('session_id', currentSessionId).order('created_at', { ascending: true }).limit(200);
+  renderChatMessages(messages || []);
+}
+
+function renderChatMessages(messages) {
+  const box = $('chat-messages');
+  if (!box) return;
+  box.innerHTML = messages.map(m => `
+    <div class="chat-message ${m.user_id === currentUser.uid ? 'own' : ''}">
+      <span class="chat-author">${escapeHtml(m.display_name)}</span>
+      <span class="chat-text">${escapeHtml(m.content)}</span>
+    </div>
+  `).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+$('form-chat')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = $('chat-input');
+  const content = input?.value.trim();
+  if (!content || !currentSessionId) return;
+  input.value = '';
+  const { error } = await sb.from('messages').insert({
+    session_id: currentSessionId,
+    user_id: currentUser.uid,
+    display_name: currentUser.username,
+    content,
+  });
+  if (error) {
+    console.error(error);
+    toast('Could not send message.');
+  }
+});
+
 function enterGame(sessionId) {
   currentSessionId = sessionId;
   showScreen('screen-game');
@@ -281,15 +308,18 @@ function enterGame(sessionId) {
   if (codeEl) codeEl.textContent = 'Table ' + sessionId.slice(0, 6).toUpperCase();
 
   refreshGameState();
+  refreshChatMessages();
+
   gameChannel = sb.channel('game-' + sessionId)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions', filter: `id=eq.${sessionId}` }, refreshGameState)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `session_id=eq.${sessionId}` }, refreshGameState)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `session_id=eq.${sessionId}` }, refreshChatMessages)
     .subscribe();
 }
 
-// If a session's opening scene never generated (kickoff failed silently
-// at some point), anyone at the table can retry it with this button —
-// it just re-calls generate-story with kickoff: true.
+// If a session's opening scene never generated, anyone at the table
+// can retry it with this button — it just re-calls generate-story
+// with kickoff: true.
 async function retryKickoff() {
   const btn = $('btn-start-tale');
   if (btn) { btn.disabled = true; btn.textContent = 'Writing the opening scene…'; }
@@ -302,8 +332,29 @@ async function retryKickoff() {
     toast('Still failed: ' + msg);
     if (btn) { btn.disabled = false; btn.textContent = 'Start the tale'; }
   }
-  // On success, the realtime subscription will push the update and
-  // renderGame() will replace this button with the real story.
+}
+
+function renderStoryLog() {
+  const logEl = $('story-log');
+  if (!logEl || !latestSession) return;
+  const history = latestSession.story_history || [];
+  if (!history.length) {
+    logEl.innerHTML = `<li class="log-empty muted">No actions yet.</li>`;
+    return;
+  }
+  logEl.innerHTML = history.slice().reverse().map(h => {
+    if (h.party) {
+      return `<li class="log-item log-party">⚡ ${escapeHtml(h.outcome)}</li>`;
+    }
+    const impactText = typeof h.impact === 'number'
+      ? (h.impact < 0 ? ` — lost ${Math.abs(h.impact)} HP` : h.impact > 0 ? ` — recovered ${h.impact} HP` : ' — unscathed')
+      : '';
+    const rollText = h.roll ? ` (${escapeHtml(h.roll)})` : '';
+    return `<li class="log-item">
+      <div class="log-player">${escapeHtml(h.player)}${impactText}${rollText}</div>
+      ${h.choice ? `<div class="log-choice">"${escapeHtml(h.choice)}"</div>` : ''}
+    </li>`;
+  }).join('');
 }
 
 function renderGame() {
@@ -350,7 +401,6 @@ function renderGame() {
   const choicesEl = $('choices');
   if (choicesEl) {
     if (isStuck) {
-      // Anyone at the table can retry — there's no valid "current turn" yet.
       choicesEl.innerHTML = `<button id="btn-start-tale" class="choice-btn">Start the tale</button>`;
       $('btn-start-tale')?.addEventListener('click', retryKickoff);
     } else if (!choices.length || latestSession.status !== 'active') {
@@ -370,6 +420,8 @@ function renderGame() {
       ? ''
       : (isMyTurn ? '' : (latestSession.status === 'active' ? 'Only the player whose turn it is can choose.' : ''));
   }
+
+  renderStoryLog();
 }
 
 async function submitChoice(choiceIndex) {
@@ -397,7 +449,6 @@ function showEndScreen(session) {
   if (titleEl) titleEl.textContent = winner ? `${winner.display_name} survives` : 'The table has fallen';
   if (summaryEl) summaryEl.textContent = session.story_narrative || '';
 
-  // Requirement: auto-reset once the game ends and one player remains.
   if (!autoResetTimer) {
     autoResetTimer = setTimeout(async () => {
       autoResetTimer = null;
