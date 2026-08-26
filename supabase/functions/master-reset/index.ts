@@ -10,7 +10,7 @@ Deno.serve(async (req) => {
     const db = adminClient();
     await requireUser(db, userId);
 
-    const adminPassword = Deno.env.get('Wildones101')!;
+    const adminPassword = Deno.env.get('test123')!;
     if (!password || password !== adminPassword) {
       throw new Error('Incorrect master password.');
     }
