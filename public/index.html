@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Last Ember — A Turn-Based Survival Tale</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="theme-simple">
+
+  <!-- ================= AUTH SCREEN ================= -->
+  <section id="screen-auth" class="screen active">
+    <div class="auth-card">
+      <div class="brand">
+        <span class="brand-mark">✦</span>
+        <h1>Last Ember</h1>
+        <p class="brand-sub">A turn-based tale of survival</p>
+      </div>
+
+      <div class="tab-row">
+        <button class="tab-btn active" data-tab="login">Sign in</button>
+        <button class="tab-btn" data-tab="register">Create account</button>
+      </div>
+
+      <form id="form-login" class="auth-form active">
+        <label>Email
+          <input type="email" id="login-email" required autocomplete="email" />
+        </label>
+        <label>Password
+          <input type="password" id="login-password" required autocomplete="current-password" />
+        </label>
+        <p class="form-error" id="login-error"></p>
+        <button type="submit" class="btn btn-primary">Sign in</button>
+      </form>
+
+      <form id="form-register" class="auth-form">
+        <label>Display name
+          <input type="text" id="register-name" required maxlength="24" />
+        </label>
+        <label>Email
+          <input type="email" id="register-email" required autocomplete="email" />
+        </label>
+        <label>Password
+          <input type="password" id="register-password" required minlength="6" autocomplete="new-password" />
+        </label>
+        <p class="form-error" id="register-error"></p>
+        <button type="submit" class="btn btn-primary">Create account</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ================= LOBBY SCREEN ================= -->
+  <section id="screen-lobby" class="screen">
+    <header class="topbar">
+      <div class="topbar-brand"><span class="brand-mark">✦</span> Last Ember</div>
+      <div class="topbar-actions">
+        <span id="lobby-username" class="user-pill"></span>
+        <button id="ui-mode-toggle" class="btn btn-ghost" title="Toggle visual style">Animated mode: Off</button>
+        <button id="btn-master-reset-open" class="btn btn-ghost btn-danger-ghost">Master reset</button>
+        <button id="btn-logout" class="btn btn-ghost">Sign out</button>
+      </div>
+    </header>
+
+    <main class="lobby-main">
+      <div class="lobby-col">
+        <h2>Your table</h2>
+        <p class="muted">Create a new session, or rejoin the one already in progress.</p>
+        <button id="btn-create-session" class="btn btn-primary btn-lg">Create new session</button>
+        <div id="active-session-banner" class="hidden active-session-banner">
+          <p>You have an active session in progress.</p>
+          <button id="btn-resume-session" class="btn btn-secondary">Resume session</button>
+        </div>
+      </div>
+
+      <div class="lobby-col">
+        <h2>Joinable sessions</h2>
+        <div id="session-list" class="session-list">
+          <p class="muted" id="session-list-empty">No open sessions right now — create one.</p>
+        </div>
+      </div>
+    </main>
+  </section>
+
+  <!-- ================= GAME SCREEN ================= -->
+  <section id="screen-game" class="screen">
+    <header class="topbar">
+      <div class="topbar-brand"><span class="brand-mark">✦</span> Last Ember</div>
+      <div class="topbar-actions">
+        <span id="game-session-code" class="user-pill"></span>
+        <button id="ui-mode-toggle-2" class="btn btn-ghost">Animated mode: Off</button>
+        <button id="btn-leave-session" class="btn btn-ghost">Leave to lobby</button>
+      </div>
+    </header>
+
+    <main class="game-main">
+      <aside class="player-panel">
+        <h3>Players</h3>
+        <ul id="player-list" class="player-list"></ul>
+        <div class="turn-indicator" id="turn-indicator">Waiting for players…</div>
+      </aside>
+
+      <div class="story-panel">
+        <div class="story-glow"></div>
+        <div class="story-text" id="story-text">The fire has not yet been lit…</div>
+
+        <div class="choices" id="choices"></div>
+
+        <p class="story-status" id="story-status"></p>
+      </div>
+    </main>
+  </section>
+
+  <!-- ================= END SCREEN ================= -->
+  <section id="screen-end" class="screen">
+    <div class="end-card">
+      <span class="brand-mark">✦</span>
+      <h1 id="end-title">The tale is told</h1>
+      <p id="end-summary" class="end-summary"></p>
+      <div class="end-actions">
+        <button id="btn-back-to-lobby" class="btn btn-primary">Return to lobby</button>
+      </div>
+      <p class="muted small">This table has reset itself — health and story cleared for the next telling.</p>
+    </div>
+  </section>
+
+  <!-- ================= MASTER RESET MODAL ================= -->
+  <div id="modal-reset" class="modal hidden">
+    <div class="modal-card">
+      <h3>Master reset</h3>
+      <p class="muted">This wipes the current session back to zero — every player's health, the story, and the turn order. Enter the master password to confirm.</p>
+      <input type="password" id="reset-password" placeholder="Master password" />
+      <p class="form-error" id="reset-error"></p>
+      <div class="modal-actions">
+        <button id="btn-reset-cancel" class="btn btn-ghost">Cancel</button>
+        <button id="btn-reset-confirm" class="btn btn-danger">Reset session</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- Supabase JS SDK (free tier: Auth + Postgres + Realtime + Edge Functions) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+
+  <script src="js/supabase-config.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
