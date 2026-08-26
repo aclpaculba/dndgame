@@ -4,12 +4,13 @@ import { adminClient, requireUser, generateOne } from '../_shared/game.ts';
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
-    await requireUser(req);
-    const { sessionId, choiceIndex, kickoff } = await req.json();
+    const { sessionId, userId, choiceIndex, kickoff } = await req.json();
     if (!sessionId) throw new Error('sessionId is required.');
 
-    const apiKey = Deno.env.get('GEMINI_API_KEY')!;
     const db = adminClient();
+    await requireUser(db, userId);
+
+    const apiKey = Deno.env.get('GEMINI_API_KEY')!;
     await generateOne(db, { sessionId, choiceIndex, kickoff: !!kickoff }, apiKey);
 
     return new Response(JSON.stringify({ ok: true }), {

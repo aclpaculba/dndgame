@@ -4,12 +4,13 @@ import { adminClient, requireUser, resetSessionInternal } from '../_shared/game.
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
-    await requireUser(req);
-    const { sessionId } = await req.json();
+    const { sessionId, userId } = await req.json();
     if (!sessionId) throw new Error('sessionId is required.');
 
-    const apiKey = Deno.env.get('GEMINI_API_KEY')!;
     const db = adminClient();
+    await requireUser(db, userId);
+
+    const apiKey = Deno.env.get('GEMINI_API_KEY')!;
     await resetSessionInternal(db, sessionId, apiKey);
 
     return new Response(JSON.stringify({ ok: true }), {

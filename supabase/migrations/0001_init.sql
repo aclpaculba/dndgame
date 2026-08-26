@@ -1,46 +1,72 @@
 -- ============================================================
 -- Last Ember — database schema (Supabase / Postgres)
+--
+-- There is no Supabase Auth in this version. A "player" is just
+-- a row in profiles, looked up by username (case-insensitive).
+-- Typing the same username again — from any browser or device —
+-- resumes that same profile, including whatever session it was
+-- last in. There is no password, so this is meant for playing
+-- with people you trust, not as a real security boundary.
+--
 -- Run this once via the Supabase SQL editor, or via
 -- `supabase db push` if you're using migrations locally.
 -- ============================================================
 
--- ---------- profiles (one row per auth user) ----------
+create extension if not exists pgcrypto;
+
+-- ---------- profiles (one row per player identity) ----------
 create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(),
   username text not null,
   preferred_ui_mode text not null default 'simple' check (preferred_ui_mode in ('simple','animated')),
   active_session_id uuid,
   created_at timestamptz not null default now()
 );
 
+-- "Alice" and "alice" are the same player.
+create unique index if not exists profiles_username_lower_idx on public.profiles (lower(username));
+
 alter table public.profiles enable row level security;
 
-create policy "profiles: read own" on public.profiles
-  for select using (auth.uid() = id);
-create policy "profiles: insert own" on public.profiles
-  for insert with check (auth.uid() = id);
-create policy "profiles: update own" on public.profiles
-  for update using (auth.uid() = id);
+-- No auth.uid() to key policies off anymore — anyone using the
+-- anon key can read/update profiles. Fine for a casual game with
+-- friends; put real auth back in front of this if that changes.
+create policy "profiles: read all" on public.profiles
+  for select using (true);
+create policy "profiles: update all" on public.profiles
+  for update using (true);
 
--- Auto-create a profile row whenever someone signs up.
-create or replace function public.handle_new_user()
-returns trigger as $$
+-- "Log in" = call this with the typed name. Existing username →
+-- returns that profile as-is (same id, same active_session_id,
+-- same preferred_ui_mode). New username → creates a fresh profile.
+create or replace function public.login_or_create_profile(p_username text)
+returns public.profiles
+language plpgsql
+security definer
+as $$
+declare
+  result public.profiles;
+  clean_name text := trim(p_username);
 begin
-  insert into public.profiles (id, username)
-  values (new.id, coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)));
-  return new;
-end;
-$$ language plpgsql security definer;
+  if clean_name = '' then
+    raise exception 'Name cannot be empty.';
+  end if;
 
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
+  select * into result from public.profiles where lower(username) = lower(clean_name);
+  if result.id is null then
+    insert into public.profiles (username) values (clean_name)
+    returning * into result;
+  end if;
+  return result;
+end;
+$$;
+
+grant execute on function public.login_or_create_profile(text) to anon, authenticated;
 
 -- ---------- sessions (one row per game table) ----------
 create table if not exists public.sessions (
   id uuid primary key default gen_random_uuid(),
-  creator_id uuid not null references auth.users(id),
+  creator_id uuid not null references public.profiles(id),
   creator_name text not null,
   status text not null default 'active' check (status in ('active','completed')),
   current_turn_index int not null default 0,
@@ -54,23 +80,21 @@ create table if not exists public.sessions (
 
 alter table public.sessions enable row level security;
 
--- Anyone signed in can see sessions (needed for the lobby list + live sync).
 create policy "sessions: read all" on public.sessions
-  for select using (auth.role() = 'authenticated');
--- A player may only create a session as themself.
-create policy "sessions: insert own" on public.sessions
-  for insert with check (auth.uid() = creator_id);
--- Direct client updates are limited to turn_order (used when joining).
--- All other game-state changes (health, story, turn advance, reset) go
--- through the Edge Functions using the service role key, which bypasses RLS.
-create policy "sessions: join updates turn_order" on public.sessions
-  for update using (auth.role() = 'authenticated')
-  with check (auth.role() = 'authenticated');
+  for select using (true);
+create policy "sessions: insert all" on public.sessions
+  for insert with check (true);
+-- Direct client updates are limited in practice to turn_order (used
+-- when joining). All other game-state changes (health, story, turn
+-- advance, reset) go through the Edge Functions using the service
+-- role key, which bypasses RLS entirely.
+create policy "sessions: update all" on public.sessions
+  for update using (true) with check (true);
 
 -- ---------- players (one row per player per session) ----------
 create table if not exists public.players (
   session_id uuid not null references public.sessions(id) on delete cascade,
-  user_id uuid not null references auth.users(id),
+  user_id uuid not null references public.profiles(id),
   display_name text not null,
   health int not null default 100,
   is_alive boolean not null default true,
@@ -82,14 +106,11 @@ create table if not exists public.players (
 alter table public.players enable row level security;
 
 create policy "players: read all" on public.players
-  for select using (auth.role() = 'authenticated');
-create policy "players: insert own" on public.players
-  for insert with check (auth.uid() = user_id);
--- Health/is_alive are server-managed (Edge Functions, service role);
--- a player may only ever touch their own display_name from the client.
-create policy "players: update own name only" on public.players
-  for update using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  for select using (true);
+create policy "players: insert all" on public.players
+  for insert with check (true);
+create policy "players: update all" on public.players
+  for update using (true) with check (true);
 
 -- ---------- realtime ----------
 -- Lets the browser subscribe to live changes instead of polling.

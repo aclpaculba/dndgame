@@ -10,7 +10,7 @@
 // policies in supabase/migrations/0001_init.sql, not by hiding
 // this file.
 // ============================================================
-const SUPABASE_URL = 'https://REPLACE_WITH_YOUR_PROJECT_REF.supabase.co';
-const SUPABASE_ANON_KEY = 'REPLACE_WITH_YOUR_ANON_PUBLIC_KEY';
+const SUPABASE_URL = 'https://crusicbsdbdqlajgbvsb.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNydXNpY2JzZGJkcWxhamdidnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3MDMxNTgsImV4cCI6MjEwMzI3OTE1OH0.WWdKIiUFA7ewIkVCTSXdnGI0fpLMOg65UifijhL8Fig';
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);

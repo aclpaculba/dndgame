@@ -10,7 +10,7 @@
 </head>
 <body class="theme-simple">
 
-  <!-- ================= AUTH SCREEN ================= -->
+  <!-- ================= NAME ENTRY SCREEN ================= -->
   <section id="screen-auth" class="screen active">
     <div class="auth-card">
       <div class="brand">
@@ -19,34 +19,13 @@
         <p class="brand-sub">A turn-based tale of survival</p>
       </div>
 
-      <div class="tab-row">
-        <button class="tab-btn active" data-tab="login">Sign in</button>
-        <button class="tab-btn" data-tab="register">Create account</button>
-      </div>
-
-      <form id="form-login" class="auth-form active">
-        <label>Email
-          <input type="email" id="login-email" required autocomplete="email" />
+      <form id="form-name" class="auth-form active">
+        <label>Your name
+          <input type="text" id="name-input" required maxlength="24" autocomplete="off" placeholder="e.g. Alric" />
         </label>
-        <label>Password
-          <input type="password" id="login-password" required autocomplete="current-password" />
-        </label>
-        <p class="form-error" id="login-error"></p>
-        <button type="submit" class="btn btn-primary">Sign in</button>
-      </form>
-
-      <form id="form-register" class="auth-form">
-        <label>Display name
-          <input type="text" id="register-name" required maxlength="24" />
-        </label>
-        <label>Email
-          <input type="email" id="register-email" required autocomplete="email" />
-        </label>
-        <label>Password
-          <input type="password" id="register-password" required minlength="6" autocomplete="new-password" />
-        </label>
-        <p class="form-error" id="register-error"></p>
-        <button type="submit" class="btn btn-primary">Create account</button>
+        <p class="form-error" id="name-error"></p>
+        <button type="submit" class="btn btn-primary btn-lg">Continue</button>
+        <p class="muted small">No password — type the exact same name again anytime, on any device, to pick up right where you left off.</p>
       </form>
     </div>
   </section>
@@ -59,7 +38,7 @@
         <span id="lobby-username" class="user-pill"></span>
         <button id="ui-mode-toggle" class="btn btn-ghost" title="Toggle visual style">Animated mode: Off</button>
         <button id="btn-master-reset-open" class="btn btn-ghost btn-danger-ghost">Master reset</button>
-        <button id="btn-logout" class="btn btn-ghost">Sign out</button>
+        <button id="btn-logout" class="btn btn-ghost">Not you?</button>
       </div>
     </header>
 
@@ -141,7 +120,7 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <!-- Supabase JS SDK (free tier: Auth + Postgres + Realtime + Edge Functions) -->
+  <!-- Supabase JS SDK (free tier: Postgres + Realtime + Edge Functions) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 
   <script src="js/supabase-config.js"></script>

@@ -16,18 +16,16 @@ export function adminClient(): SupabaseClient {
   );
 }
 
-// Verifies the caller's JWT (sent automatically by supabase-js .functions.invoke())
-// and returns their user id, or null if not signed in.
-export async function requireUser(req: Request): Promise<string> {
-  const authHeader = req.headers.get('Authorization') ?? '';
-  const client = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    { global: { headers: { Authorization: authHeader } } },
-  );
-  const { data, error } = await client.auth.getUser();
-  if (error || !data.user) throw new Error('Sign in first.');
-  return data.user.id;
+// There's no Supabase Auth session anymore — a player's identity is
+// just a username-backed row in `profiles`, and the client sends that
+// profile's id as `userId` with every call. This only checks that the
+// id corresponds to a real profile; it is NOT a security boundary
+// (anyone who knew or guessed a profile id could pass it), so this is
+// meant for casual play, not anything that needs real access control.
+export async function requireUser(db: SupabaseClient, userId: string): Promise<void> {
+  if (!userId) throw new Error('Sign in first.');
+  const { data, error } = await db.from('profiles').select('id').eq('id', userId).maybeSingle();
+  if (error || !data) throw new Error('Unknown player — please sign in again.');
 }
 
 export async function generateOne(
