@@ -22,12 +22,13 @@ export async function callStoryteller(apiKey: string, systemPrompt: string, user
     const text = await res.text();
     throw new Error(`Story engine error: ${res.status} ${text.slice(0, 300)}`);
   }
-  const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('\n') ?? '';
-  const cleaned = raw.replace(/```json|```/g, '').trim();
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    throw new Error('Story engine returned an unreadable response.');
-  }
+const data = await res.json();
+const raw = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('\n') ?? '';
+const cleaned = raw.replace(/```json|```/g, '').trim();
+try {
+  return JSON.parse(cleaned);
+} catch {
+  console.error('Unparseable Gemini response:', JSON.stringify(data));
+  throw new Error('Story engine returned an unreadable response: ' + cleaned.slice(0, 200));
+}
 }
