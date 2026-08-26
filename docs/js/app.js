@@ -248,7 +248,12 @@ async function joinSession(sessionId) {
     enterGame(sessionId);
   } catch (err) {
     console.error(err);
-    toast(err.message || 'Could not join that session.');
+    if (err.message?.includes('players_pkey') || err.code === '23505') {
+      currentUser.activeSessionId = sessionId;
+      enterGame(sessionId);
+    } else {
+      toast(err.message || 'Could not join that session.');
+    }
   }
 }
 
