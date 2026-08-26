@@ -4,9 +4,11 @@ import { adminClient, requireUser, resetSessionInternal } from '../_shared/game.
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
-    await requireUser(req);
-    const { sessionId, password } = await req.json();
+    const { sessionId, userId, password } = await req.json();
     if (!sessionId) throw new Error('sessionId is required.');
+
+    const db = adminClient();
+    await requireUser(db, userId);
 
     const adminPassword = Deno.env.get('ADMIN_PASSWORD')!;
     if (!password || password !== adminPassword) {
@@ -14,7 +16,6 @@ Deno.serve(async (req) => {
     }
 
     const apiKey = Deno.env.get('GEMINI_API_KEY')!;
-    const db = adminClient();
     await resetSessionInternal(db, sessionId, apiKey);
 
     return new Response(JSON.stringify({ ok: true }), {
