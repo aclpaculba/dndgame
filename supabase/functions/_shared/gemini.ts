@@ -1,7 +1,7 @@
 // Calls Gemini's free-tier generateContent endpoint and returns parsed JSON.
 // Get a free key (no billing required) at https://aistudio.google.com/apikey
 export async function callStoryteller(apiKey: string, systemPrompt: string, userPrompt: string) {
-  const model = 'gemini-2.5-flash';
+  const model = 'gemini-3.6-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
   const res = await fetch(url, {
