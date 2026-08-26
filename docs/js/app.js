@@ -22,10 +22,11 @@ const STORAGE_KEY = 'lastEmberUser';
 function $(id) { return document.getElementById(id); }
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  $(id).classList.add('active');
+  $(id)?.classList.add('active');
 }
 function toast(msg, ms = 3200) {
   const t = $('toast');
+  if (!t) return;
   t.textContent = msg;
   t.classList.remove('hidden');
   clearTimeout(toast._t);
@@ -35,8 +36,10 @@ function applyTheme(mode) {
   document.body.classList.toggle('theme-animated', mode === 'animated');
   document.body.classList.toggle('theme-simple', mode !== 'animated');
   const label = mode === 'animated' ? 'Animated mode: On' : 'Animated mode: Off';
-  $('ui-mode-toggle').textContent = label;
-  $('ui-mode-toggle-2').textContent = label;
+  const t1 = $('ui-mode-toggle');
+  const t2 = $('ui-mode-toggle-2');
+  if (t1) t1.textContent = label;
+  if (t2) t2.textContent = label;
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -51,18 +54,20 @@ function setCurrentUserFromProfile(profile) {
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ uid: profile.id, username: profile.username }));
   applyTheme(currentUser.preferredUiMode);
-  $('lobby-username').textContent = currentUser.username;
+  const el = $('lobby-username');
+  if (el) el.textContent = currentUser.username;
 }
 
 // ---------------- Name entry ("login") ----------------
-$('form-name').addEventListener('submit', async (e) => {
+$('form-name')?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  $('name-error').textContent = '';
-  const name = $('name-input').value.trim();
+  const errEl = $('name-error');
+  if (errEl) errEl.textContent = '';
+  const name = $('name-input')?.value.trim();
   if (!name) return;
 
   const submitBtn = e.target.querySelector('button[type="submit"]');
-  submitBtn.disabled = true;
+  if (submitBtn) submitBtn.disabled = true;
   try {
     const { data: profile, error } = await sb.rpc('login_or_create_profile', { p_username: name });
     if (error) throw error;
@@ -70,9 +75,9 @@ $('form-name').addEventListener('submit', async (e) => {
     enterLobby();
   } catch (err) {
     console.error(err);
-    $('name-error').textContent = err.message || 'Could not continue — try again.';
+    if (errEl) errEl.textContent = err.message || 'Could not continue — try again.';
   } finally {
-    submitBtn.disabled = false;
+    if (submitBtn) submitBtn.disabled = false;
   }
 });
 
@@ -103,12 +108,14 @@ async function tryResumeFromStorage() {
   enterLobby();
 }
 
-$('btn-logout').addEventListener('click', () => {
+$('btn-logout')?.addEventListener('click', () => {
   teardownSubscriptions();
   currentUser = null;
   localStorage.removeItem(STORAGE_KEY);
-  $('name-input').value = '';
-  $('name-error').textContent = '';
+  const nameInput = $('name-input');
+  const nameError = $('name-error');
+  if (nameInput) nameInput.value = '';
+  if (nameError) nameError.textContent = '';
   showScreen('screen-auth');
 });
 
@@ -120,13 +127,14 @@ async function toggleUiMode() {
   applyTheme(next);
   await sb.from('profiles').update({ preferred_ui_mode: next }).eq('id', currentUser.uid);
 }
-$('ui-mode-toggle').addEventListener('click', toggleUiMode);
-$('ui-mode-toggle-2').addEventListener('click', toggleUiMode);
+$('ui-mode-toggle')?.addEventListener('click', toggleUiMode);
+$('ui-mode-toggle-2')?.addEventListener('click', toggleUiMode);
 
 // ---------------- Lobby ----------------
 async function refreshLobbyList() {
   const { data: sessions } = await sb.from('sessions').select('*').eq('status', 'active');
   const list = $('session-list');
+  if (!list) return;
   const rows = [];
   for (const s of sessions || []) {
     const { count } = await sb.from('players').select('*', { count: 'exact', head: true }).eq('session_id', s.id);
@@ -142,7 +150,7 @@ async function refreshLobbyList() {
     `);
   }
   list.innerHTML = rows.join('');
-  $('session-list-empty').classList.toggle('hidden', rows.length > 0);
+  $('session-list-empty')?.classList.toggle('hidden', rows.length > 0);
   list.querySelectorAll('[data-join]').forEach(b => {
     b.addEventListener('click', () => joinSession(b.dataset.join));
   });
@@ -150,7 +158,7 @@ async function refreshLobbyList() {
 
 function enterLobby() {
   showScreen('screen-lobby');
-  $('active-session-banner').classList.toggle('hidden', !currentUser.activeSessionId);
+  $('active-session-banner')?.classList.toggle('hidden', !currentUser.activeSessionId);
 
   refreshLobbyList();
   lobbyChannel = sb.channel('lobby-sessions')
@@ -159,7 +167,7 @@ function enterLobby() {
     .subscribe();
 }
 
-$('btn-create-session').addEventListener('click', async () => {
+$('btn-create-session')?.addEventListener('click', async () => {
   try {
     const { data: newSession, error: sErr } = await sb.from('sessions').insert({
       creator_id: currentUser.uid,
@@ -213,13 +221,14 @@ async function joinSession(sessionId) {
     currentUser.activeSessionId = sessionId;
     enterGame(sessionId);
   } catch (err) {
-    toast(err.message);
+    console.error(err);
+    toast(err.message || 'Could not join that session.');
   }
 }
 
-$('btn-resume-session').addEventListener('click', () => enterGame(currentUser.activeSessionId));
-$('btn-leave-session').addEventListener('click', () => { teardownSubscriptions(); enterLobby(); });
-$('btn-back-to-lobby').addEventListener('click', () => { teardownSubscriptions(); enterLobby(); });
+$('btn-resume-session')?.addEventListener('click', () => enterGame(currentUser.activeSessionId));
+$('btn-leave-session')?.addEventListener('click', () => { teardownSubscriptions(); enterLobby(); });
+$('btn-back-to-lobby')?.addEventListener('click', () => { teardownSubscriptions(); enterLobby(); });
 
 // ---------------- Game screen ----------------
 async function refreshGameState() {
@@ -237,7 +246,8 @@ async function refreshGameState() {
 function enterGame(sessionId) {
   currentSessionId = sessionId;
   showScreen('screen-game');
-  $('game-session-code').textContent = 'Table ' + sessionId.slice(0, 6).toUpperCase();
+  const codeEl = $('game-session-code');
+  if (codeEl) codeEl.textContent = 'Table ' + sessionId.slice(0, 6).toUpperCase();
 
   refreshGameState();
   gameChannel = sb.channel('game-' + sessionId)
@@ -250,53 +260,63 @@ function renderGame() {
   if (!latestSession) return;
 
   const list = $('player-list');
-  list.innerHTML = latestPlayers.map((p) => {
-    const isTurn = latestSession.turn_order && latestSession.turn_order[latestSession.current_turn_index] === p.user_id && p.is_alive;
-    const pct = Math.max(0, Math.min(100, p.health));
-    const color = pct > 55 ? 'var(--health-full)' : pct > 25 ? 'var(--health-mid)' : 'var(--health-low)';
-    return `
-      <li class="player-item ${isTurn ? 'current-turn' : ''} ${!p.is_alive ? 'eliminated' : ''}">
-        <div class="p-name"><span>${escapeHtml(p.display_name)}${p.user_id === currentUser.uid ? ' (you)' : ''}</span>
-        <span class="p-health-num">${p.is_alive ? pct : 'eliminated'}</span></div>
-        <div class="p-health-track"><div class="p-health-fill" style="width:${pct}%;background:${color}"></div></div>
-      </li>`;
-  }).join('');
+  if (list) {
+    list.innerHTML = latestPlayers.map((p) => {
+      const isTurn = latestSession.turn_order && latestSession.turn_order[latestSession.current_turn_index] === p.user_id && p.is_alive;
+      const pct = Math.max(0, Math.min(100, p.health));
+      const color = pct > 55 ? 'var(--health-full)' : pct > 25 ? 'var(--health-mid)' : 'var(--health-low)';
+      return `
+        <li class="player-item ${isTurn ? 'current-turn' : ''} ${!p.is_alive ? 'eliminated' : ''}">
+          <div class="p-name"><span>${escapeHtml(p.display_name)}${p.user_id === currentUser.uid ? ' (you)' : ''}</span>
+          <span class="p-health-num">${p.is_alive ? pct : 'eliminated'}</span></div>
+          <div class="p-health-track"><div class="p-health-fill" style="width:${pct}%;background:${color}"></div></div>
+        </li>`;
+    }).join('');
+  }
 
   const currentTurnUid = latestSession.turn_order ? latestSession.turn_order[latestSession.current_turn_index] : null;
   const currentPlayer = latestPlayers.find(p => p.user_id === currentTurnUid);
   const turnEl = $('turn-indicator');
-  if (latestSession.status === 'completed') {
-    turnEl.textContent = 'The tale has ended.';
-  } else if (currentPlayer) {
-    turnEl.textContent = currentTurnUid === currentUser.uid ? 'It is your turn.' : `Waiting on ${currentPlayer.display_name}…`;
+  if (turnEl) {
+    if (latestSession.status === 'completed') {
+      turnEl.textContent = 'The tale has ended.';
+    } else if (currentPlayer) {
+      turnEl.textContent = currentTurnUid === currentUser.uid ? 'It is your turn.' : `Waiting on ${currentPlayer.display_name}…`;
+    }
   }
 
-  $('story-text').textContent = latestSession.story_narrative || '';
+  const storyTextEl = $('story-text');
+  if (storyTextEl) storyTextEl.textContent = latestSession.story_narrative || '';
+
   const choices = latestSession.story_choices || [];
   const isMyTurn = currentTurnUid === currentUser.uid && latestSession.status === 'active';
   const choicesEl = $('choices');
-  if (!choices.length || latestSession.status !== 'active') {
-    choicesEl.innerHTML = '';
-  } else {
-    choicesEl.innerHTML = choices.map((c, i) => `
-      <button class="choice-btn" data-choice="${i}" ${isMyTurn ? '' : 'disabled'}>${escapeHtml(c)}</button>
-    `).join('');
-    choicesEl.querySelectorAll('[data-choice]').forEach(btn => {
-      btn.addEventListener('click', () => submitChoice(Number(btn.dataset.choice)));
-    });
+  if (choicesEl) {
+    if (!choices.length || latestSession.status !== 'active') {
+      choicesEl.innerHTML = '';
+    } else {
+      choicesEl.innerHTML = choices.map((c, i) => `
+        <button class="choice-btn" data-choice="${i}" ${isMyTurn ? '' : 'disabled'}>${escapeHtml(c)}</button>
+      `).join('');
+      choicesEl.querySelectorAll('[data-choice]').forEach(btn => {
+        btn.addEventListener('click', () => submitChoice(Number(btn.dataset.choice)));
+      });
+    }
   }
-  $('story-status').textContent = isMyTurn ? '' : (latestSession.status === 'active' ? 'Only the player whose turn it is can choose.' : '');
+  const statusEl = $('story-status');
+  if (statusEl) statusEl.textContent = isMyTurn ? '' : (latestSession.status === 'active' ? 'Only the player whose turn it is can choose.' : '');
 }
 
 async function submitChoice(choiceIndex) {
-  $('choices').querySelectorAll('button').forEach(b => b.disabled = true);
-  $('story-status').textContent = 'The storyteller is weaving the outcome…';
+  $('choices')?.querySelectorAll('button').forEach(b => b.disabled = true);
+  const statusEl = $('story-status');
+  if (statusEl) statusEl.textContent = 'The storyteller is weaving the outcome…';
   const { error } = await sb.functions.invoke('generate-story', {
     body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
   });
   if (error) {
     console.error(error);
-    $('story-status').textContent = 'The story engine faltered — please try again.';
+    if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
     toast('Story generation failed: ' + error.message);
   }
 }
@@ -306,8 +326,10 @@ let autoResetTimer = null;
 function showEndScreen(session) {
   showScreen('screen-end');
   const winner = latestPlayers.find(p => p.is_alive);
-  $('end-title').textContent = winner ? `${winner.display_name} survives` : 'The table has fallen';
-  $('end-summary').textContent = session.story_narrative || '';
+  const titleEl = $('end-title');
+  const summaryEl = $('end-summary');
+  if (titleEl) titleEl.textContent = winner ? `${winner.display_name} survives` : 'The table has fallen';
+  if (summaryEl) summaryEl.textContent = session.story_narrative || '';
 
   // Requirement: auto-reset once the game ends and one player remains.
   if (!autoResetTimer) {
@@ -322,26 +344,34 @@ function showEndScreen(session) {
 }
 
 // ---------------- Master reset (password-gated) ----------------
-$('btn-master-reset-open').addEventListener('click', () => {
+$('btn-master-reset-open')?.addEventListener('click', () => {
   if (!currentUser.activeSessionId && !currentSessionId) {
     toast('Join or create a session first.');
     return;
   }
-  $('reset-password').value = '';
-  $('reset-error').textContent = '';
-  $('modal-reset').classList.remove('hidden');
+  const pw = $('reset-password');
+  const err = $('reset-error');
+  if (pw) pw.value = '';
+  if (err) err.textContent = '';
+  $('modal-reset')?.classList.remove('hidden');
 });
-$('btn-reset-cancel').addEventListener('click', () => $('modal-reset').classList.add('hidden'));
-$('btn-reset-confirm').addEventListener('click', async () => {
+$('btn-reset-cancel')?.addEventListener('click', () => $('modal-reset')?.classList.add('hidden'));
+$('btn-reset-confirm')?.addEventListener('click', async () => {
   const sessionId = currentSessionId || currentUser.activeSessionId;
-  $('reset-error').textContent = '';
-  const { error } = await sb.functions.invoke('master-reset', {
-    body: { sessionId, userId: currentUser.uid, password: $('reset-password').value },
+  const errEl = $('reset-error');
+  if (errEl) errEl.textContent = '';
+  const { data, error } = await sb.functions.invoke('master-reset', {
+    body: { sessionId, userId: currentUser.uid, password: $('reset-password')?.value },
   });
   if (error) {
-    $('reset-error').textContent = error.message || 'Incorrect password.';
+    // supabase-js puts the function's own JSON error body on error.context in most
+    // versions — fall back through a few places so the real message actually shows,
+    // instead of always just "Incorrect password."
+    const serverMessage = data?.error || error.context?.body?.error || error.message;
+    console.error('master-reset failed:', error, data);
+    if (errEl) errEl.textContent = serverMessage || 'Something went wrong — check the console for details.';
   } else {
-    $('modal-reset').classList.add('hidden');
+    $('modal-reset')?.classList.add('hidden');
     toast('Session reset.');
   }
 });
