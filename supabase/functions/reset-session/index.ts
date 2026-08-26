@@ -10,7 +10,7 @@ Deno.serve(async (req) => {
     const db = adminClient();
     await requireUser(db, userId);
 
-    const apiKey = Deno.env.get('GEMINI_API_KEY')!;
+    const apiKey = Deno.env.get('AQ.Ab8RN6LVPVRSbv5p38C3hrbIKLxp56A_JApRuoqS0w-Njk1FZA')!;
     await resetSessionInternal(db, sessionId, apiKey);
 
     return new Response(JSON.stringify({ ok: true }), {

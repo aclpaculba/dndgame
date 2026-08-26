@@ -11,8 +11,8 @@ You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching
 
 export function adminClient(): SupabaseClient {
   return createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    Deno.env.get('https://crusicbsdbdqlajgbvsb.supabase.co')!,
+    Deno.env.get('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNydXNpY2JzZGJkcWxhamdidnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3MDMxNTgsImV4cCI6MjEwMzI3OTE1OH0.WWdKIiUFA7ewIkVCTSXdnGI0fpLMOg65UifijhL8Fig')!,
   );
 }
 
