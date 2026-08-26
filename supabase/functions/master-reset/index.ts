@@ -10,12 +10,12 @@ Deno.serve(async (req) => {
     const db = adminClient();
     await requireUser(db, userId);
 
-    const adminPassword = Deno.env.get('test123')!;
+    const adminPassword = Deno.env.get('ADMIN_PASSWORD')!;
     if (!password || password !== adminPassword) {
       throw new Error('Incorrect master password.');
     }
 
-    const apiKey = Deno.env.get('AQ.Ab8RN6LVPVRSbv5p38C3hrbIKLxp56A_JApRuoqS0w-Njk1FZA')!;
+    const apiKey = Deno.env.get('GEMINI_API_KEY')!;
     await resetSessionInternal(db, sessionId, apiKey);
 
     return new Response(JSON.stringify({ ok: true }), {
