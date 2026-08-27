@@ -9,14 +9,14 @@ A turn-based, AI-narrated survival game for 1–6 players, built from your SRS �
 |---|---|---|---|
 | Hosting the site | Serve the HTML/CSS/JS | **GitHub Pages** | Free, no limit for a project this size |
 | Login + cloud save | Store users, sessions, health, story state, synced live | **Supabase** (Postgres + Auth + Realtime) | Free tier: 500MB DB, 50K monthly active users |
-| AI story engine | Write the narrative each turn, without exposing a secret key in the browser | **Supabase Edge Functions** calling **Google Gemini's free API tier** | Free tier: 500K function calls/month on Supabase; Gemini free tier has no billing requirement (rate-limited, not metered-by-cost) |
+| AI story engine | Write the narrative each turn, without exposing a secret key in the browser | **Supabase Edge Functions** calling **DeepSeek's API** | Requires a DeepSeek API key; usage stays server-side |
 | Source control | What you asked to publish through git | **GitHub** | Free |
 
 Nothing here requires entering a credit card. Supabase's free "Edge Functions" are what
 make this possible without Firebase's paid Blaze plan — they're genuinely free up to a
 generous monthly quota, not a trial.
 
-The trade-off: Gemini's free tier has **rate limits** (requests per minute), so this is
+The trade-off: DeepSeek usage has **rate limits**, so this is
 great for personal use / playing with friends, but isn't meant for heavy simultaneous
 traffic. If you ever outgrow it, swapping the two `fetch` calls in
 `supabase/functions/_shared/gemini.ts` for a paid model is the only change needed later.
@@ -29,8 +29,7 @@ traffic. If you ever outgrow it, swapping the two `fetch` calls in
 - Git installed (`git --version`)
 - A free [GitHub](https://github.com) account
 - A free [Supabase](https://supabase.com) account (sign in with GitHub is easiest)
-- A free [Google AI Studio](https://aistudio.google.com/apikey) API key for Gemini — click
-  "Create API key", no billing account needed for the free tier
+- A [DeepSeek API key](https://platform.deepseek.com/api_keys)
 
 Everything below runs in **VS Code's integrated terminal** (`` Ctrl+` `` / `` Cmd+` ``).
 
@@ -82,12 +81,12 @@ supabase link --project-ref YOUR_PROJECT_REF
 
 ---
 
-## 4. Set your Gemini secret
+## 4. Set your DeepSeek secret
 
 These live only on Supabase's servers — never in your code, never in git:
 
 ```bash
-supabase secrets set GEMINI_API_KEY=your-gemini-api-key-here
+supabase secrets set DEEPSEEK_API_KEY=your-deepseek-api-key-here
 ```
 
 Rotate it later by re-running the same command and redeploying the functions.

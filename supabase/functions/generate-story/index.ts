@@ -10,7 +10,7 @@ Deno.serve(async (req) => {
     const db = adminClient();
     await requireUser(db, userId);
 
-    const apiKey = Deno.env.get('GEMINI_API_KEY')!;
+    const apiKey = Deno.env.get('DEEPSEEK_API_KEY')!;
     await generateOne(db, { sessionId, choiceIndex, kickoff: !!kickoff }, apiKey);
 
     return new Response(JSON.stringify({ ok: true }), {

@@ -208,7 +208,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     ...(partyLabel ? [{ party: true, outcome: partyLabel, impact: null, roll: null }] : []),
   ];
 
-  if (aliveCount <= 1) {
+  if (!kickoff && aliveCount <= 1) {
     const winner = updatedPlayers.find((p: any) => p.is_alive);
     const summary = `${narrative}\n\n${winner ? `${winner.display_name} is the last ember still burning.` : 'No one survived the night.'}`;
     await db.from('sessions').update({

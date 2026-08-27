@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
     const db = adminClient();
     await requireUser(db, userId);
 
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
+    const apiKey = Deno.env.get('DEEPSEEK_API_KEY');
     if (!apiKey) throw new Error('Story engine is not configured.');
 
     const result = await callStoryteller(

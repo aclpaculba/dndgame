@@ -1,20 +1,22 @@
-// Calls Gemini's free-tier generateContent endpoint and returns parsed JSON.
-// Get a free key (no billing required) at https://aistudio.google.com/apikey
+// Calls DeepSeek's OpenAI-compatible chat endpoint and returns parsed JSON.
 export async function callStoryteller(apiKey: string, systemPrompt: string, userPrompt: string) {
-  const model = 'gemini-3.6-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = 'https://api.deepseek.com/chat/completions';
 
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 1,
-        maxOutputTokens: 900,
-      },
+      model: 'deepseek-v4-flash',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 1,
+      max_tokens: 900,
     }),
   });
 
@@ -23,21 +25,20 @@ export async function callStoryteller(apiKey: string, systemPrompt: string, user
     throw new Error(`Story engine error: ${res.status} ${text.slice(0, 300)}`);
   }
   const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('\n') ?? '';
+  const raw = data?.choices?.[0]?.message?.content ?? '';
   const cleaned = raw.replace(/```json|```/g, '').trim();
 
   try {
     return JSON.parse(cleaned);
   } catch {
-    // Model sometimes wraps or trails the JSON with extra prose even
-    // with responseMimeType set. Try to salvage just the {...} block.
+    // Salvage the JSON object if the model wraps it in extra text.
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (match) {
       try {
         return JSON.parse(match[0]);
       } catch { /* fall through to the error below */ }
     }
-    console.error('Unparseable Gemini response:', JSON.stringify(data));
+    console.error('Unparseable story response:', JSON.stringify(data));
     throw new Error('Story engine returned an unreadable response: ' + cleaned.slice(0, 300));
   }
 }
