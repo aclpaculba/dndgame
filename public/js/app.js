@@ -1074,9 +1074,10 @@ function renderGame() {
   const turnEl = $('turn-indicator');
   
   const choices = latestSession.story_choices || [];
+  const narrative = (latestSession.story_narrative || '').trim();
   const isStuck = latestSession.status === 'active' &&
     !choices.length &&
-    (latestSession.story_narrative || '').trim() === 'The story is being written…';
+    (narrative === 'The story is being written…' || narrative.startsWith('A new tale begins'));
 
   if (turnEl) {
     if (latestSession.status === 'completed') {
