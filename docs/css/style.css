@@ -836,6 +836,47 @@ body {
   color: var(--text-muted);
 }
 
+.player-stats-toggle {
+  display: block;
+  margin-top: var(--space-xs);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.player-stats-toggle:hover,
+.player-stats-toggle:focus-visible {
+  color: var(--text-primary);
+}
+
+.player-stats {
+  margin-top: var(--space-xs);
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--glass-border);
+}
+
+.player-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px var(--space-xs);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
+.player-stats-grid strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.player-stats-empty {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
 .turn-indicator {
   margin-top: var(--space-md);
   padding: var(--space-md);

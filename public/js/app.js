@@ -71,6 +71,7 @@ let lobbyChannel = null;
 let latestPlayers = [];
 let latestSession = null;
 let characters = [];
+let latestCharactersById = new Map();
 let autoResetTimer = null;
 let pendingTableStartSessionId = null;
 
@@ -904,12 +905,29 @@ async function refreshGameState() {
   
   latestSession = session;
   latestPlayers = players || [];
+  const characterIds = latestPlayers.map(player => player.character_id).filter(Boolean);
+  if (characterIds.length) {
+    const { data: sessionCharacters } = await sb.from('characters').select('*').in('id', characterIds);
+    latestCharactersById = new Map((sessionCharacters || []).map(character => [character.id, character]));
+  } else {
+    latestCharactersById = new Map();
+  }
   renderGame();
   
   if (latestSession.status === 'completed') {
     sounds.playWin();
     showEndScreen(latestSession);
   }
+}
+
+function renderPlayerStats(character) {
+  if (!character) return '<div class="player-stats-empty">Character details unavailable</div>';
+
+  const stats = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
+  return `<div class="player-stats-grid">${stats.map(stat => {
+    const value = character[stat] || 8;
+    return `<span>${stat.slice(0, 3).toUpperCase()} <strong>${value}</strong></span>`;
+  }).join('')}</div>`;
 }
 
 async function refreshChatMessages() {
@@ -1038,19 +1056,33 @@ function renderGame() {
         p.is_alive;
       const pct = Math.max(0, Math.min(100, p.health));
       const color = pct > 55 ? 'var(--health-full)' : pct > 25 ? 'var(--health-mid)' : 'var(--health-low)';
+      const character = latestCharactersById.get(p.character_id);
+      const characterName = character?.name || p.display_name;
       
       return `
         <li class="player-item ${isTurn ? 'current-turn' : ''} ${!p.is_alive ? 'eliminated' : ''}" data-user-id="${p.user_id}">
           <div class="p-name">
-            <span>${escapeHtml(p.display_name)}${p.user_id === currentUser.uid ? ' (you)' : ''}</span>
+            <span>${escapeHtml(characterName)}${p.user_id === currentUser.uid ? ' (you)' : ''}</span>
             <span class="p-health-num">${p.is_alive ? pct : '💀'}</span>
           </div>
           <div class="p-health-track">
             <div class="p-health-fill" style="width:${pct}%;background:${color}"></div>
           </div>
+          <button class="player-stats-toggle" type="button" aria-expanded="false">Stats</button>
+          <div class="player-stats hidden">${renderPlayerStats(character)}</div>
         </li>
       `;
     }).join('');
+
+    list.querySelectorAll('.player-stats-toggle').forEach(button => {
+      button.addEventListener('click', () => {
+        const stats = button.nextElementSibling;
+        if (!stats) return;
+        const expanded = button.getAttribute('aria-expanded') === 'true';
+        button.setAttribute('aria-expanded', String(!expanded));
+        stats.classList.toggle('hidden', expanded);
+      });
+    });
   }
 
   // Turn Indicator
@@ -1281,7 +1313,7 @@ if (resetConfirmBtn) {
       
       if (error) {
         console.error('❌ Reset error:', error);
-        const errorMsg = error.message || 'Server error.';
+        const errorMsg = await extractFunctionError(error, data);
         if (errEl) errEl.textContent = errorMsg;
         toast('❌ Reset failed: ' + errorMsg, 4000, 'error');
         return;
