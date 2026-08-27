@@ -858,7 +858,8 @@ h1, h2, h3, h4, .topbar-brand, .boss-name {
 }
 
 .player-stats-toggle,
-.player-inventory-toggle {
+.player-inventory-toggle,
+.player-gear-toggle {
   display: block;
   margin-top: var(--space-xs);
   padding: 0;
@@ -873,7 +874,9 @@ h1, h2, h3, h4, .topbar-brand, .boss-name {
 .player-stats-toggle:hover,
 .player-stats-toggle:focus-visible,
 .player-inventory-toggle:hover,
-.player-inventory-toggle:focus-visible {
+.player-inventory-toggle:focus-visible,
+.player-gear-toggle:hover,
+.player-gear-toggle:focus-visible {
   color: var(--text-primary);
 }
 
@@ -1636,4 +1639,10 @@ body.theme-plain *::after {
 .equipment-item small {
   color: var(--text-muted);
   font-size: 0.68rem;
+}
+
+.player-gear {
+  margin-top: var(--space-xs);
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--glass-border);
 }

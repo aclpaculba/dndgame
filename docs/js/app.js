@@ -1007,13 +1007,21 @@ function renderPlayerStats(character) {
 }
 
 function renderPlayerInventory(player) {
-  const inventory = Array.isArray(player.inventory) ? player.inventory : [];
+  const inventory = Array.isArray(player.inventory) ? player.inventory.filter(item => item.type !== 'gear') : [];
   if (!inventory.length) return '<div class="player-stats-empty">No items carried</div>';
   return `<div class="player-inventory-list">${inventory.map(item => `
     <div class="player-inventory-item">
       <span>${escapeHtml(item.name || 'Unknown item')}</span>
       <small>${escapeHtml(item.description || '')}</small>
     </div>`).join('')}</div>`;
+}
+
+function renderPlayerGear(player) {
+  const gear = Array.isArray(player.inventory) ? player.inventory.filter(item => item.type === 'gear') : [];
+  if (!gear.length) return '<div class="player-stats-empty">No weapons or gear</div>';
+  return `<div class="player-inventory-list">${gear.map(item => `
+    <div class="player-inventory-item"><span>[${escapeHtml(item.slot || 'Gear')}] ${escapeHtml(item.name || 'Unknown item')}</span><small>${escapeHtml(item.specification || '')}</small></div>
+  `).join('')}</div>`;
 }
 
 function renderAshenMap() {
@@ -1250,9 +1258,11 @@ function renderGame() {
           <div class="player-detail-actions">
             <button class="player-stats-toggle" type="button" aria-expanded="false">Stats</button>
             <button class="player-inventory-toggle" type="button" aria-expanded="false">Inventory</button>
+            <button class="player-gear-toggle" type="button" aria-expanded="false">Weapons &amp; Gear</button>
           </div>
           <div class="player-stats hidden">${renderPlayerStats(character)}</div>
           <div class="player-inventory hidden">${renderPlayerInventory(p)}</div>
+          <div class="player-gear hidden">${renderPlayerGear(p)}</div>
         </li>
       `;
     }).join('');
@@ -1273,6 +1283,15 @@ function renderGame() {
         const expanded = button.getAttribute('aria-expanded') === 'true';
         button.setAttribute('aria-expanded', String(!expanded));
         inventory.classList.toggle('hidden', expanded);
+      });
+    });
+    list.querySelectorAll('.player-gear-toggle').forEach(button => {
+      button.addEventListener('click', () => {
+        const gear = button.closest('.player-item')?.querySelector('.player-gear');
+        if (!gear) return;
+        const expanded = button.getAttribute('aria-expanded') === 'true';
+        button.setAttribute('aria-expanded', String(!expanded));
+        gear.classList.toggle('hidden', expanded);
       });
     });
   }
@@ -1350,12 +1369,7 @@ function renderGame() {
     const showInventory = isMyTurn && !isStuck && myInventory.length > 0;
     inventoryPanel.classList.toggle('hidden', !showInventory);
     if (showInventory) {
-      const equipmentList = $('equipment-list');
-      const equipment = myInventory.filter(item => item.type === 'gear');
       const consumables = myInventory.filter(item => item.type !== 'gear');
-      if (equipmentList) equipmentList.innerHTML = equipment.length ? equipment.map(item => `
-        <div class="equipment-item"><span>[${escapeHtml(item.slot)}] ${escapeHtml(item.name)}</span><small>${escapeHtml(item.specification)}</small></div>
-      `).join('') : '<div class="player-stats-empty">No equipped gear</div>';
       inventoryList.innerHTML = consumables.map(item => `
         <div class="inventory-item">
           <div class="item-info">
