@@ -1,7 +1,7 @@
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.46.0';
 import { callStoryteller } from './storyteller.ts';
 
-const SYSTEM_PROMPT = `You are the game master for "Last Ember", a dark-fantasy, turn-based survival game.
+const SYSTEM_PROMPT = `You are the game master for "Stackfall", a dark-fantasy, tech-infused, turn-based survival game.
 Write intense, thrilling, vivid prose (45-80 words) with real stakes — never bland or generic.
 Do NOT state exact numbers or health totals in your prose — the game engine reports those separately.
 You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching exactly:
@@ -210,7 +210,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
 
   if (!kickoff && aliveCount <= 1) {
     const winner = updatedPlayers.find((p: any) => p.is_alive);
-    const summary = `${narrative}\n\n${winner ? `${winner.display_name} is the last ember still burning.` : 'No one survived the night.'}`;
+    const summary = `${narrative}\n\n${winner ? `${winner.display_name} is the last signal still active.` : 'No one survived the night.'}`;
     await db.from('sessions').update({
       status: 'completed',
       story_narrative: summary,

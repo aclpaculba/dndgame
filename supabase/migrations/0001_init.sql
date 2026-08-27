@@ -1,5 +1,5 @@
 -- ============================================================
--- Last Ember — database schema (Supabase / Postgres)
+-- Stackfall — database schema (Supabase / Postgres)
 --
 -- There is no Supabase Auth in this version. A "player" is just
 -- a row in profiles, looked up by username (case-insensitive).

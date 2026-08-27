@@ -2,7 +2,7 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { adminClient, requireUser } from '../_shared/game.ts';
 import { callStoryteller } from '../_shared/storyteller.ts';
 
-const SYSTEM_PROMPT = `Create a surprising random Last Ember fantasy hero.
+const SYSTEM_PROMPT = `Create a surprising random Stackfall fantasy hero.
 Respond with ONLY raw JSON in exactly this shape:
 {"name": string, "race": string, "class": string, "stats": {"strength": number, "dexterity": number, "constitution": number, "intelligence": number, "wisdom": number, "charisma": number}, "background": string, "personality": string, "ideal": string, "bond": string, "flaw": string}
 The race must be exactly one of: Human, Elf, Dwarf, Halfling, Gnome, Half-Elf, Half-Orc.

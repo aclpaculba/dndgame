@@ -1,5 +1,5 @@
 // ============================================================
-// Last Ember — Modern Client Application Logic
+// Stackfall — Modern Client Application Logic
 // With Character Creation, Stats System, and Realtime Fixes
 // ============================================================
 
@@ -77,6 +77,7 @@ let pendingTableStartSessionId = null;
 
 const STORAGE_KEY = 'lastEmberUser';
 const CHAR_STORAGE_KEY = 'lastEmberCharacter';
+const RANDOM_CHAR_STORAGE_KEY = 'lastEmberRandomCharacter';
 const sounds = new SoundManager();
 
 // ---------- DOM Helpers ----------
@@ -571,6 +572,11 @@ async function tryResumeFromStorage() {
   }
 
   setCurrentUserFromProfile(profile);
+
+  const savedRandomCharacter = localStorage.getItem(RANDOM_CHAR_STORAGE_KEY);
+  if (savedRandomCharacter) {
+    try { currentCharacter = JSON.parse(savedRandomCharacter); } catch { currentCharacter = null; }
+  }
   
   // Check if there's a saved character
   const savedCharId = localStorage.getItem(CHAR_STORAGE_KEY);
@@ -741,25 +747,26 @@ function createRandomCharacter() {
   const stats = getDefaultStats();
   let remaining = 27;
   while (remaining > 0) {
-    const available = Object.keys(stats).filter(stat => stats[stat] < 15);
+    const available = Object.keys(stats).filter(stat => {
+      if (stats[stat] >= 15) return false;
+      const nextStats = { ...stats, [stat]: stats[stat] + 1 };
+      return calculatePointBuyCost(nextStats) - calculatePointBuyCost(stats) <= remaining;
+    });
     if (!available.length) break;
     const stat = available[Math.floor(Math.random() * available.length)];
     const oldCost = calculatePointBuyCost(stats);
-    const nextStats = { ...stats, [stat]: stats[stat] + 1 };
-    const cost = calculatePointBuyCost(nextStats) - oldCost;
-    if (cost <= remaining) {
-      stats[stat] += 1;
-      remaining -= cost;
-    }
+    stats[stat] += 1;
+    remaining -= calculatePointBuyCost(stats) - oldCost;
   }
 
   const races = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Gnome', 'Half-Elf', 'Half-Orc'];
   const classes = ['Fighter', 'Rogue', 'Cleric', 'Wizard', 'Ranger', 'Paladin', 'Bard', 'Druid'];
   const backgrounds = ['Noble', 'Soldier', 'Urchin', 'Sage', 'Criminal', 'Folk Hero', 'Acolyte'];
+  const names = ['Byte', 'Kernel', 'Cipher', 'Pixel', 'Nova', 'Vector', 'Glitch', 'Cache', 'Proxy', 'Codec', 'Flux', 'Quantum'];
   const pick = values => values[Math.floor(Math.random() * values.length)];
 
   return {
-    name: `${currentUser.username}'s Ember`.slice(0, 24),
+    name: pick(names),
     race: pick(races),
     class: pick(classes),
     level: 1,
@@ -773,17 +780,10 @@ function createRandomCharacter() {
 }
 
 async function startTableWithRandomCharacter(sessionId) {
-  const { data: character, error: characterError } = await sb.from('characters').insert({
-    ...createRandomCharacter(),
-    profile_id: currentUser.uid,
-  }).select().single();
-  if (characterError) throw characterError;
-
-  currentCharacter = character;
-  localStorage.setItem(CHAR_STORAGE_KEY, character.id);
+  currentCharacter = createRandomCharacter();
+  localStorage.setItem(RANDOM_CHAR_STORAGE_KEY, JSON.stringify(currentCharacter));
   const { error: playerError } = await sb.from('players').update({
-    display_name: character.name,
-    character_id: character.id,
+    display_name: currentCharacter.name,
   }).eq('session_id', sessionId).eq('user_id', currentUser.uid);
   if (playerError) throw playerError;
 
@@ -914,13 +914,7 @@ async function refreshGameState() {
   
   latestSession = session;
   latestPlayers = players || [];
-  const characterIds = latestPlayers.map(player => player.character_id).filter(Boolean);
-  if (characterIds.length) {
-    const { data: sessionCharacters } = await sb.from('characters').select('*').in('id', characterIds);
-    latestCharactersById = new Map((sessionCharacters || []).map(character => [character.id, character]));
-  } else {
-    latestCharactersById = new Map();
-  }
+  latestCharactersById = new Map();
   renderGame();
   
   if (latestSession.status === 'completed') {
@@ -1068,7 +1062,7 @@ function renderGame() {
         p.is_alive;
       const pct = Math.max(0, Math.min(100, p.health));
       const color = pct > 55 ? 'var(--health-full)' : pct > 25 ? 'var(--health-mid)' : 'var(--health-low)';
-      const character = latestCharactersById.get(p.character_id);
+      const character = p.user_id === currentUser.uid ? currentCharacter : null;
       const characterName = character?.name || p.display_name;
       
       return `
