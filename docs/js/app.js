@@ -82,6 +82,19 @@ const sounds = new SoundManager();
 // ---------- DOM Helpers ----------
 function $(id) { return document.getElementById(id); }
 
+async function extractFunctionError(error, fallbackData) {
+  if (fallbackData?.error) return fallbackData.error;
+  try {
+    if (error?.context && typeof error.context.json === 'function') {
+      const body = await error.context.json();
+      if (body?.error) return body.error;
+    }
+  } catch {
+    // Fall back to the SDK message when the response body is unavailable.
+  }
+  return error?.message || 'Unknown error.';
+}
+
 function showScreen(id) {
   const screens = document.querySelectorAll('.screen');
   screens.forEach(s => {
