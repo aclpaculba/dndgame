@@ -1182,9 +1182,9 @@ function renderGame() {
   const bossPhaseEl = $('boss-phase');
   const bossPanelEl = $('boss-panel');
   if (bossNameEl && bossHealthNumEl && bossHealthFillEl) {
-    bossPanelEl?.classList.toggle('hidden', !(latestSession.story_history?.length || bossHealth < bossMax));
     const bossMax = latestSession.boss_max_health || 100;
     const bossHealth = Math.max(0, Math.min(bossMax, latestSession.boss_health ?? bossMax));
+    bossPanelEl?.classList.toggle('hidden', !(latestSession.story_history?.length || bossHealth < bossMax));
     const bossPct = bossMax > 0 ? Math.round((bossHealth / bossMax) * 100) : 0;
     bossNameEl.textContent = latestSession.boss_name || 'The Nameless Dread';
     bossHealthNumEl.textContent = `${bossHealth} / ${bossMax}`;
