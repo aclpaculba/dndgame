@@ -24,21 +24,15 @@ export async function requireUser(db: SupabaseClient, userId: string): Promise<v
 }
 
 // ---------------- Randomized outcome roll ----------------
-// A hidden d20 roll layered on top of the model's suggested health
-// impact, so the same choice never plays out the same way twice.
-// Extreme rolls ripple out to the whole party — a critical failure
-// hurts everyone a little, a critical success helps everyone a
-// little — so the table shares in the suspense together, not just
-// whoever's turn it is.
 type RollOutcome = {
   impact: number;
   rollLabel: string;
-  partyImpact: number;      // applied to every OTHER alive player, 0 = none
+  partyImpact: number;
   partyLabel: string | null;
 };
 
 function rollOutcome(baseImpact: number): RollOutcome {
-  const roll = Math.floor(Math.random() * 20) + 1; // 1–20
+  const roll = Math.floor(Math.random() * 20) + 1;
 
   if (roll === 1) {
     const impact = Math.min(-15, Math.round(baseImpact * 1.8) - 8);
@@ -60,7 +54,7 @@ function rollOutcome(baseImpact: number): RollOutcome {
     };
   }
 
-  const variance = 0.5 + Math.random() * 0.9; // 0.5x – 1.4x
+  const variance = 0.5 + Math.random() * 0.9;
   const impact = Math.round(baseImpact * variance);
   const rollLabel = roll <= 5 ? 'A close call.' : roll >= 16 ? 'Fortune favors them.' : '';
   return { impact: Math.max(-40, Math.min(20, impact)), rollLabel, partyImpact: 0, partyLabel: null };
@@ -86,6 +80,12 @@ export async function generateOne(
   const { data: players, error: pErr } = await db
     .from('players').select('*').eq('session_id', sessionId).order('position_in_turn_order');
   if (pErr || !players) throw new Error('Could not load players.');
+
+  // If no players, reset the session
+  if (players.length === 0) {
+    await resetSessionInternal(db, sessionId, apiKey);
+    return;
+  }
 
   const actingUid = session.turn_order[session.current_turn_index];
   const actingPlayer = players.find((p: any) => p.user_id === actingUid);
@@ -133,8 +133,6 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     updatedPlayers = players.map((p: any) =>
       p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive } : p);
 
-    // Ripple effect from a critical roll — hits/helps everyone else
-    // still standing, so the table feels the swing together.
     if (roll.partyImpact !== 0) {
       const others = updatedPlayers.filter((p: any) => p.user_id !== actingUid && p.is_alive);
       for (const other of others) {
@@ -147,9 +145,6 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       }
     }
 
-    // Append the deterministic, randomized result to the narrative shown
-    // on screen, so the displayed outcome always matches what actually
-    // happened to health — regardless of the model's prose.
     const lines = [narrative.trim(), describeImpact(actingPlayer.display_name, appliedImpact)];
     if (partyLabel) lines.push(partyLabel);
     narrative = lines.join('\n\n');
@@ -203,15 +198,28 @@ export async function resetSessionInternal(db: SupabaseClient, sessionId: string
   const { data: session, error } = await db.from('sessions').select('id').eq('id', sessionId).single();
   if (error || !session) throw new Error('Session not found.');
 
-  await db.from('players').update({ health: 100, is_alive: true }).eq('session_id', sessionId);
+  // Delete all players
+  await db.from('players').delete().eq('session_id', sessionId);
+  
+  // Delete all messages
+  await db.from('messages').delete().eq('session_id', sessionId);
+  
+  // Reset the session
   await db.from('sessions').update({
     status: 'active',
     current_turn_index: 0,
-    story_narrative: 'A new tale begins…',
+    turn_order: [],
+    story_narrative: 'A new tale begins… The ember has been rekindled.',
     story_choices: [],
     story_history: [],
     updated_at: new Date().toISOString(),
   }).eq('id', sessionId);
+
+  // Clear active_session_id from all profiles
+  await db
+    .from('profiles')
+    .update({ active_session_id: null })
+    .eq('active_session_id', sessionId);
 
   if (apiKey) {
     await generateOne(db, { sessionId, kickoff: true }, apiKey);
