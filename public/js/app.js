@@ -1191,6 +1191,10 @@ function showEndScreen(session) {
 }
 
 // ============================================================
+// MASTER RESET - FIXED VERSION
+// ============================================================
+
+// ============================================================
 // MASTER RESET - NO PASSWORD REQUIRED
 // ============================================================
 
@@ -1320,124 +1324,6 @@ if (resetConfirmBtn) {
       // Re-enable button
       confirmBtn.disabled = false;
       confirmBtn.textContent = 'Yes, Reset Session';
-    }
-  });
-} else {
-  console.error('❌ Reset confirm button not found!');
-}
-
-// ---------- Close modal on backdrop click ----------
-const resetModal = document.getElementById('modal-reset');
-if (resetModal) {
-  resetModal.addEventListener('click', function(e) {
-    if (e.target === this) {
-      this.close();
-      console.log('Modal closed by backdrop click');
-    }
-  });
-}
-
-// ---------- Close modal with Escape key ----------
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') {
-    const modal = document.getElementById('modal-reset');
-    if (modal && modal.open) {
-      modal.close();
-      console.log('Modal closed with Escape key');
-    }
-  }
-});
-
-// ---------- Reset Confirm Button ----------
-const resetConfirmBtn = document.getElementById('btn-reset-confirm');
-if (resetConfirmBtn) {
-  resetConfirmBtn.addEventListener('click', async function() {
-    console.log('🔄 Reset confirm clicked!');
-    
-    const sessionId = currentSessionId || currentUser?.activeSessionId;
-    const errEl = document.getElementById('reset-error');
-    const pwInput = document.getElementById('reset-password');
-    
-    // Clear previous error
-    if (errEl) errEl.textContent = '';
-    
-    // Validate
-    if (!sessionId) {
-      if (errEl) errEl.textContent = 'No active session to reset.';
-      return;
-    }
-    
-    const password = pwInput?.value || '';
-    if (!password) {
-      if (errEl) errEl.textContent = 'Please enter the master password.';
-      return;
-    }
-    
-    // Disable button while processing
-    const confirmBtn = this;
-    confirmBtn.disabled = true;
-    confirmBtn.textContent = '⏳ Resetting...';
-    
-    try {
-      console.log(`📤 Sending reset request for session: ${sessionId}`);
-      
-      const { data, error } = await sb.functions.invoke('master-reset', {
-        body: { 
-          sessionId: sessionId, 
-          userId: currentUser.uid, 
-          password: password 
-        },
-      });
-      
-      console.log('📥 Reset response:', { data, error });
-      
-      if (error) {
-        console.error('❌ Reset error:', error);
-        const errorMsg = error.message || 'Incorrect password or server error.';
-        if (errEl) errEl.textContent = errorMsg;
-        toast('❌ Reset failed: ' + errorMsg, 4000, 'error');
-        return;
-      }
-      
-      // Success!
-      console.log('✅ Reset successful!', data);
-      
-      // Close modal
-      const modal = document.getElementById('modal-reset');
-      if (modal) modal.close();
-      
-      toast('🔄 Session has been completely wiped and reset!', 3000, 'success');
-      
-      // Refresh the game state
-      if (typeof refreshGameState === 'function') {
-        await refreshGameState();
-      }
-      
-      // If we're in the lobby, refresh the lobby list
-      const lobbyScreen = document.getElementById('screen-lobby');
-      if (lobbyScreen && lobbyScreen.classList.contains('active')) {
-        if (typeof refreshLobbyList === 'function') {
-          refreshLobbyList();
-        }
-      }
-      
-      // If we're in the game, reload
-      const gameScreen = document.getElementById('screen-game');
-      if (gameScreen && gameScreen.classList.contains('active')) {
-        // Re-enter the game to refresh
-        if (typeof enterGame === 'function') {
-          enterGame(sessionId);
-        }
-      }
-      
-    } catch (err) {
-      console.error('❌ Unexpected reset error:', err);
-      if (errEl) errEl.textContent = err.message || 'Something went wrong.';
-      toast('❌ Reset failed: ' + (err.message || 'Unknown error'), 4000, 'error');
-    } finally {
-      // Re-enable button
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = 'Reset Session';
     }
   });
 } else {
