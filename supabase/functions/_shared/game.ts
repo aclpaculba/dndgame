@@ -38,7 +38,7 @@ const BOSS_NAMES = [
 // so using one always does exactly what it says, regardless of AI
 // availability or quota.
 const ITEM_POOL = [
-  { name: 'Healing Potion', type: 'heal', value: 20, description: 'Restores 20 health.' },
+  { name: 'Healing Potion', type: 'heal', value: 10, description: 'Restores 10 health.' },
   { name: 'Field Rations', type: 'heal', value: 10, description: 'Restores 10 health.' },
   { name: 'Warhorn', type: 'damage_boss', value: 15, description: "Deals 15 damage to the boss." },
   { name: "Alchemist's Fire", type: 'damage_boss', value: 10, selfDamage: 5, description: 'Deals 10 damage to the boss, but 5 to you.' },
@@ -76,9 +76,9 @@ export async function requireUser(db: SupabaseClient, userId: string): Promise<v
 // the exact same pool/shape), but re-exported for that purpose.
 export function rollStartingInventory(count = 2) {
   const items = [];
+  const healingPotion = ITEM_POOL[0];
   for (let i = 0; i < count; i++) {
-    const template = ITEM_POOL[Math.floor(Math.random() * ITEM_POOL.length)];
-    items.push({ ...template, id: `${Date.now()}-${i}-${Math.floor(Math.random() * 100000)}` });
+    items.push({ ...healingPotion, id: `${Date.now()}-${i}-${Math.floor(Math.random() * 100000)}` });
   }
   return items;
 }

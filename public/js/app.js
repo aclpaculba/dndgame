@@ -761,7 +761,7 @@ function enterLobby() {
 // Same item pool and shape as supabase/functions/_shared/game.ts —
 // kept in sync manually since the client can't import that module.
 const ITEM_POOL = [
-  { name: 'Healing Potion', type: 'heal', value: 20, description: 'Restores 20 health.' },
+  { name: 'Healing Potion', type: 'heal', value: 10, description: 'Restores 10 health.' },
   { name: 'Field Rations', type: 'heal', value: 10, description: 'Restores 10 health.' },
   { name: 'Warhorn', type: 'damage_boss', value: 15, description: 'Deals 15 damage to the boss.' },
   { name: "Alchemist's Fire", type: 'damage_boss', value: 10, selfDamage: 5, description: 'Deals 10 damage to the boss, but 5 to you.' },
@@ -769,9 +769,9 @@ const ITEM_POOL = [
 
 function rollStartingInventory(count = 2) {
   const items = [];
+  const healingPotion = ITEM_POOL[0];
   for (let i = 0; i < count; i++) {
-    const template = ITEM_POOL[Math.floor(Math.random() * ITEM_POOL.length)];
-    items.push({ ...template, id: `${Date.now()}-${i}-${Math.floor(Math.random() * 100000)}` });
+    items.push({ ...healingPotion, id: `${Date.now()}-${i}-${Math.floor(Math.random() * 100000)}` });
   }
   return items;
 }
@@ -1015,11 +1015,15 @@ function renderAshenMap() {
   if (!map) return;
   const rooms = ['Ash', 'Gate', 'Garden', 'Shrine', 'Crypt', 'Tower', 'Marsh', 'Keep', 'Throne'];
   const details = [
-    'Safe zone. Rest at the bonfire and prepare.', 'Enemy territory. Hollow Soldiers patrol the gate.',
-    'Enemy territory. Beasts stalk the darkroot paths.', 'Safe zone. The fire remembers your name.',
-    'Enemy territory. Skeletons wait beneath the stones.', 'Enemy territory. Knights defend the broken tower.',
-    'Enemy territory. Infected wander through the mist.', 'Enemy territory. Thieves guard the sealed keep.',
-    'Boss lair. The throne room belongs to the Ashen Sovereign.'
+    ['Safe zone', 'Rest at the bonfire and prepare.', 'Exits: Gate, Garden'],
+    ['Enemy territory', 'Hollow Soldiers patrol the gate and watch the road.', 'Enemies: 3 Hollow Soldiers · Aggro range: 30 ft · Exits: Ash, Shrine'],
+    ['Enemy territory', 'Beasts stalk the darkroot paths between the trees.', 'Enemies: Forest Beasts · Aggro range: 50 ft · Exits: Ash, Throne'],
+    ['Safe zone', 'The fire remembers your name. Wounds may be tended here.', 'Bonfire: Rest, level up, manage inventory · Exits: Ash, Crypt'],
+    ['Enemy territory', 'Skeletons wait beneath the old stones and broken graves.', 'Enemies: Skeletons · Aggro range: 40 ft · Exits: Shrine, Tower'],
+    ['Enemy territory', 'Knights defend a broken tower under red lightning.', 'Enemies: Knights · Aggro range: 40 ft · Exits: Crypt, Marsh'],
+    ['Enemy territory', 'Infected wander through the mist, hunting movement.', 'Enemies: Infected · Aggro range: 40 ft · Exits: Garden, Keep'],
+    ['Enemy territory', 'Thieves guard the sealed keep and its hidden routes.', 'Enemies: Thieves · Aggro range: 40 ft · Exits: Marsh, Throne'],
+    ['Boss lair', 'The throne room belongs to the Ashen Sovereign. Enter only when ready.', 'Boss: Ashen Sovereign · Lair · Exits: Keep']
   ];
   const markers = ['●', '🔴', '🔴', '●', '🔴', '🔴', '🔴', '🔴', '👑'];
   ];
@@ -1033,13 +1037,21 @@ function renderAshenMap() {
     node.addEventListener('click', () => {
       const index = Number(node.dataset.mapIndex);
       $('map-popover-title').textContent = rooms[index];
-      $('map-popover-description').textContent = details[index];
+      $('map-popover-description').innerHTML = `<strong>${details[index][0]}</strong><br>${details[index][1]}<br><small>${details[index][2]}</small>`;
       $('map-popover')?.classList.remove('hidden');
     });
   });
 }
 
 $('map-popover-close')?.addEventListener('click', () => $('map-popover')?.classList.add('hidden'));
+$('map-toggle')?.addEventListener('click', () => {
+  const map = $('mini-map');
+  const toggle = $('map-toggle');
+  const isOpen = toggle.getAttribute('aria-expanded') === 'true';
+  toggle.setAttribute('aria-expanded', String(!isOpen));
+  toggle.textContent = isOpen ? 'View map' : 'Hide map';
+  map?.classList.toggle('hidden', isOpen);
+});
 
 function renderHallOfDead() {
   const hall = $('hall-of-dead');
@@ -1177,7 +1189,9 @@ function renderGame() {
   const bossHealthNumEl = $('boss-health-num');
   const bossHealthFillEl = $('boss-health-fill');
   const bossPhaseEl = $('boss-phase');
+  const bossPanelEl = $('boss-panel');
   if (bossNameEl && bossHealthNumEl && bossHealthFillEl) {
+    bossPanelEl?.classList.toggle('hidden', !(latestSession.story_history?.length || bossHealth < bossMax));
     const bossMax = latestSession.boss_max_health || 100;
     const bossHealth = Math.max(0, Math.min(bossMax, latestSession.boss_health ?? bossMax));
     const bossPct = bossMax > 0 ? Math.round((bossHealth / bossMax) * 100) : 0;
