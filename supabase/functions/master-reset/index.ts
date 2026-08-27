@@ -1,6 +1,8 @@
 import { corsHeaders } from '../_shared/cors.ts';
 import { adminClient, requireUser } from '../_shared/game.ts';
 
+supabase secrets set ADMIN_PASSWORD=password
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
