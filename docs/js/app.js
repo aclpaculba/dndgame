@@ -814,8 +814,6 @@ function createRandomCharacter() {
 async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true } = {}) {
   currentCharacter = createRandomCharacter();
   localStorage.setItem(RANDOM_CHAR_STORAGE_KEY, JSON.stringify(currentCharacter));
-  const classHp = { Fighter: 12, Paladin: 12, Ranger: 10, Cleric: 10, Druid: 10, Rogue: 8, Bard: 8, Wizard: 6 };
-  const maxHealth = classHp[currentCharacter.class] + getStatModifier(currentCharacter.constitution);
   // Write the whole character to the shared players row (not just the
   // name) so every other player at the table can see these stats too —
   // previously this only ever lived in the creating player's own
@@ -831,12 +829,6 @@ async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true 
     wisdom: currentCharacter.wisdom,
     charisma: currentCharacter.charisma,
     inventory: currentCharacter.inventory,
-    max_health: maxHealth,
-    health: maxHealth,
-    status: 'Healthy',
-    level: 1,
-    souls: 0,
-    ghost_mode: false,
   }).eq('session_id', sessionId).eq('user_id', currentUser.uid);
   if (playerError) throw playerError;
 

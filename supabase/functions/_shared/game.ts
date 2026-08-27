@@ -302,7 +302,7 @@ export async function generateOne(
     const isAlive = newHealth > 0;
     const remainingInventory = inventory.filter((it) => it.id !== itemId);
 
-    const { error: itemPlayerUpdateError } = await db.from('players').update({ health: newHealth, is_alive: isAlive, inventory: remainingInventory, status: statusForHealth(newHealth, maxHealth), ghost_mode: !isAlive })
+    const { error: itemPlayerUpdateError } = await db.from('players').update({ health: newHealth, is_alive: isAlive, inventory: remainingInventory })
       .eq('session_id', sessionId).eq('user_id', actingUid);
     if (itemPlayerUpdateError) {
       console.error('[db] Failed to update player after item use:', JSON.stringify(itemPlayerUpdateError));
@@ -489,10 +489,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     const newInventory = lootedItem ? [...currentInventory, lootedItem] : currentInventory;
 
     const { error: playerUpdateError } = await db.from('players').update({
-      health: newHealth, is_alive: isAlive, inventory: newInventory, status,
-      souls: totalSouls, level: nextLevel, unallocated_stat_points: statPoints,
-      death_count: !isAlive ? Number(actingPlayer.death_count || 0) + 1 : Number(actingPlayer.death_count || 0),
-      ghost_mode: !isAlive,
+      health: newHealth, is_alive: isAlive, inventory: newInventory,
     })
       .eq('session_id', sessionId).eq('user_id', actingUid);
     if (playerUpdateError) {
@@ -509,7 +506,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
         const otherMaxHealth = Math.max(1, Number(other.max_health || 100));
         const otherHealth = Math.max(0, Math.min(otherMaxHealth, other.health + roll.partyImpact));
         const otherAlive = otherHealth > 0;
-        const { error: otherUpdateError } = await db.from('players').update({ health: otherHealth, is_alive: otherAlive, status: statusForHealth(otherHealth, otherMaxHealth), ghost_mode: !otherAlive })
+        const { error: otherUpdateError } = await db.from('players').update({ health: otherHealth, is_alive: otherAlive })
           .eq('session_id', sessionId).eq('user_id', other.user_id);
         if (otherUpdateError) {
           console.error('[db] Failed to update party-splash player:', JSON.stringify(otherUpdateError));
