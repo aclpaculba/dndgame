@@ -463,15 +463,13 @@ function showEndScreen(session) {
   }
 }
 
-// ---------------- Master reset (password-gated) ----------------
+// ---------------- Master reset ----------------
 $('btn-master-reset-open')?.addEventListener('click', () => {
   if (!currentUser.activeSessionId && !currentSessionId) {
     toast('Join or create a session first.');
     return;
   }
-  const pw = $('reset-password');
   const err = $('reset-error');
-  if (pw) pw.value = '';
   if (err) err.textContent = '';
   $('modal-reset')?.classList.remove('hidden');
 });
@@ -481,7 +479,7 @@ $('btn-reset-confirm')?.addEventListener('click', async () => {
   const errEl = $('reset-error');
   if (errEl) errEl.textContent = '';
   const { data, error } = await sb.functions.invoke('master-reset', {
-    body: { sessionId, userId: currentUser.uid, password: $('reset-password')?.value },
+    body: { sessionId, userId: currentUser.uid },
   });
   if (error) {
     const msg = await extractFunctionError(error, data);

@@ -82,16 +82,15 @@ supabase link --project-ref YOUR_PROJECT_REF
 
 ---
 
-## 4. Set your secrets (Gemini key + master reset password)
+## 4. Set your Gemini secret
 
 These live only on Supabase's servers — never in your code, never in git:
 
 ```bash
 supabase secrets set GEMINI_API_KEY=your-gemini-api-key-here
-supabase secrets set ADMIN_PASSWORD=choose-a-master-reset-password
 ```
 
-(Rotate either one later by re-running the same command and redeploying the functions.)
+Rotate it later by re-running the same command and redeploying the functions.
 
 ---
 
@@ -173,7 +172,7 @@ supabase functions deploy generate-story
 | AI-generated branching story | `supabase/functions/generate-story`, calling Gemini's free API server-side |
 | Simple vs. animated UI, per-user, persisted | `preferred_ui_mode` column on `profiles`; theme applied via a body class in `style.css` |
 | Last player standing wins, then resets | `generate-story` detects one player left, marks the session `completed`; the client shows the recap, then automatically calls `reset-session` a few seconds later |
-| Master reset with password | `btn-master-reset-open` → modal → `master-reset` Edge Function, which checks the `ADMIN_PASSWORD` secret server-side before wiping the session |
+| Master reset | `btn-master-reset-open` → modal → `master-reset` Edge Function, which wipes the session after verifying the user |
 
 ---
 
@@ -193,7 +192,7 @@ prints out while testing.
 
 ## Notes / known limitations
 
-- The Gemini API key and master password live only in Supabase's server-side secret
+- The Gemini API key lives only in Supabase's server-side secret
   store — never sent to the browser.
 - Row Level Security policies restrict writes so a player can't directly edit their own
   health or someone else's; all health changes go through the Edge Functions.
