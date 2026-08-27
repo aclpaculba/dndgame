@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.46.0';
-import { callStoryteller } from './gemini.ts';
+import { callStoryteller } from './storyteller.ts';
 
 const SYSTEM_PROMPT = `You are the game master for "Last Ember", a dark-fantasy, turn-based survival game.
 Write intense, thrilling, vivid prose (45-80 words) with real stakes — never bland or generic.
@@ -149,7 +149,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
   } catch (error) {
     const message = String(error);
     if (!message.includes('429') && !message.toLowerCase().includes('quota')) throw error;
-    console.warn('Gemini quota reached; using fallback story.', message);
+    console.warn('Story provider quota reached; using fallback story.', message);
     result = fallbackStory(!!kickoff, actingPlayer.display_name);
   }
 

@@ -19,7 +19,7 @@ generous monthly quota, not a trial.
 The trade-off: DeepSeek usage has **rate limits**, so this is
 great for personal use / playing with friends, but isn't meant for heavy simultaneous
 traffic. If you ever outgrow it, swapping the two `fetch` calls in
-`supabase/functions/_shared/gemini.ts` for a paid model is the only change needed later.
+`supabase/functions/_shared/storyteller.ts` for another model is the only change needed later.
 
 ---
 
@@ -168,7 +168,7 @@ supabase functions deploy generate-story
 | Login / accounts | Supabase Auth + `profiles` table (auto-created by a DB trigger on sign-up) |
 | Cloud-persisted settings & game state | `profiles` and `sessions`/`players` tables in Postgres — same data from any device you sign into |
 | Up to 6 players, turn order, health | `sessions`/`players` tables, enforced in `app.js` (join) and the Edge Functions (turn advance, health) |
-| AI-generated branching story | `supabase/functions/generate-story`, calling Gemini's free API server-side |
+| AI-generated branching story | `supabase/functions/generate-story`, calling DeepSeek server-side |
 | Simple vs. animated UI, per-user, persisted | `preferred_ui_mode` column on `profiles`; theme applied via a body class in `style.css` |
 | Last player standing wins, then resets | `generate-story` detects one player left, marks the session `completed`; the client shows the recap, then automatically calls `reset-session` a few seconds later |
 | Master reset | `btn-master-reset-open` → modal → `master-reset` Edge Function, which wipes the session after verifying the user |
@@ -191,7 +191,7 @@ prints out while testing.
 
 ## Notes / known limitations
 
-- The Gemini API key lives only in Supabase's server-side secret
+- The DeepSeek API key lives only in Supabase's server-side secret
   store — never sent to the browser.
 - Row Level Security policies restrict writes so a player can't directly edit their own
   health or someone else's; all health changes go through the Edge Functions.
@@ -202,6 +202,6 @@ prints out while testing.
   logic into a Postgres function (`security definer`) for atomicity.
 - This is a solid, working implementation of the SRS's core loop, not a pixel-perfect
   final product — FE-1 through FE-4 (inventory, co-op mode, avatars, sound) aren't built.
-- Gemini's free tier is rate-limited (not a spending cap) — if multiple tables play at
+- DeepSeek is rate-limited — if multiple tables play at
   once and you hit the limit, story calls will briefly fail; the UI shows a retry message
   when that happens.

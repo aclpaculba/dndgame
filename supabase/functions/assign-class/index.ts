@@ -1,6 +1,6 @@
 import { corsHeaders } from '../_shared/cors.ts';
 import { adminClient, requireUser } from '../_shared/game.ts';
-import { callStoryteller } from '../_shared/gemini.ts';
+import { callStoryteller } from '../_shared/storyteller.ts';
 
 const SYSTEM_PROMPT = `Create a surprising random Last Ember fantasy hero.
 Respond with ONLY raw JSON in exactly this shape:
