@@ -411,6 +411,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
   let rollLabel = '';
   let rollValue: number | null = null;
   let partyLabel: string | null = null;
+  let lootedItemName: string | null = null;
 
   if (!kickoff) {
     const { modifier, statUsed } = resolveModifier(actingPlayer, result.relevantStat);
@@ -427,11 +428,24 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
 
     const newHealth = Math.max(0, Math.min(100, actingPlayer.health + appliedImpact));
     const isAlive = newHealth > 0;
-    await db.from('players').update({ health: newHealth, is_alive: isAlive })
+
+    // A good roll can turn up a new item — guaranteed on a critical
+    // success, a decent chance otherwise, never on a critical failure.
+    // This is how inventory actually grows over the course of a game,
+    // rather than only ever shrinking as items get used.
+    let lootedItem: (typeof ITEM_POOL)[number] & { id: string } | null = null;
+    if (isAlive && (roll.isCritSuccess || (!roll.isCritFail && Math.random() < 0.3))) {
+      const template = ITEM_POOL[Math.floor(Math.random() * ITEM_POOL.length)];
+      lootedItem = { ...template, id: `${Date.now()}-loot-${Math.floor(Math.random() * 100000)}` };
+    }
+    const currentInventory: any[] = Array.isArray(actingPlayer.inventory) ? actingPlayer.inventory : [];
+    const newInventory = lootedItem ? [...currentInventory, lootedItem] : currentInventory;
+
+    await db.from('players').update({ health: newHealth, is_alive: isAlive, inventory: newInventory })
       .eq('session_id', sessionId).eq('user_id', actingUid);
 
     updatedPlayers = players.map((p: any) =>
-      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive } : p);
+      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, inventory: newInventory } : p);
 
     if (roll.partyImpact !== 0) {
       const others = updatedPlayers.filter((p: any) => p.user_id !== actingUid && p.is_alive);
@@ -452,8 +466,10 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       describeImpact(actingPlayer.display_name, appliedImpact),
       describeBossImpact(bossName, appliedBossImpact),
     ];
+    if (lootedItem) lines.push(`${actingPlayer.display_name} found a ${lootedItem.name}!`);
     if (partyLabel) lines.push(partyLabel);
     narrative = lines.join('\n\n');
+    lootedItemName = lootedItem?.name ?? null;
   }
 
   const aliveCount = updatedPlayers.filter((p: any) => p.is_alive).length;
@@ -467,6 +483,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       impact: appliedImpact,
       roll: rollValue,
       rollLabel: rollLabel || null,
+      loot: lootedItemName,
     },
     ...(partyLabel ? [{ party: true, outcome: partyLabel, impact: null, roll: null }] : []),
   ];

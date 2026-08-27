@@ -925,6 +925,7 @@ body {
   border-left: 3px solid #6c5ce7;
   min-height: 120px;
 }
+
 /* Boss health bar */
 .boss-panel {
   background: rgba(225, 112, 85, 0.06);
@@ -1012,6 +1013,7 @@ body {
   font-size: 0.72rem;
   color: var(--text-muted);
 }
+
 .choices {
   display: flex;
   flex-direction: column;
@@ -1120,6 +1122,12 @@ body {
 .log-choice {
   color: var(--text-muted);
   font-style: italic;
+}
+
+.log-loot {
+  color: #00b894;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 .log-party {
@@ -1337,7 +1345,6 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
-
 /* ============================================================
    PLAIN MODE — toggled by the "Plain mode" button (formerly
    "Animated"). Strips away all of the custom styling so the page
@@ -1386,6 +1393,9 @@ body.theme-plain svg {
   filter: grayscale(100%) contrast(120%) !important;
 }
 
+/* The glass-card / user-pill decorative bullet and other pseudo-element
+   content is dropped entirely in plain mode, since it's purely visual
+   flourish (colored dots, arrows drawn with ::before, etc). */
 body.theme-plain *::before,
 body.theme-plain *::after {
   content: none !important;

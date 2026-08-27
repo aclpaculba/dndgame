@@ -817,7 +817,7 @@ function createRandomCharacter() {
   };
 }
 
-async function startTableWithRandomCharacter(sessionId) {
+async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true } = {}) {
   currentCharacter = createRandomCharacter();
   localStorage.setItem(RANDOM_CHAR_STORAGE_KEY, JSON.stringify(currentCharacter));
   // Write the whole character to the shared players row (not just the
@@ -837,6 +837,17 @@ async function startTableWithRandomCharacter(sessionId) {
     inventory: currentCharacter.inventory,
   }).eq('session_id', sessionId).eq('user_id', currentUser.uid);
   if (playerError) throw playerError;
+
+  // Only the table's creator should ever trigger kickoff. If every
+  // joiner also called this, several kickoff calls could race each
+  // other right as a table filled up, and a late one that still saw
+  // an empty story history would reset the boss back to full health
+  // even after real combat turns had already landed — this is what
+  // was actually causing the boss bar to silently snap back to 100%.
+  if (!triggerKickoff) {
+    await refreshGameState();
+    return;
+  }
 
   const { data: kickoffData, error: kickoffError } = await sb.functions.invoke('generate-story', {
     body: { sessionId, userId: currentUser.uid, kickoff: true },
@@ -914,7 +925,7 @@ async function joinSession(sessionId) {
     currentUser.activeSessionId = sessionId;
     
     enterGame(sessionId);
-    await startTableWithRandomCharacter(sessionId);
+    await startTableWithRandomCharacter(sessionId, { triggerKickoff: false });
   } catch (err) {
     console.error(err);
     if (err.message?.includes('players_pkey') || err.code === '23505') {
@@ -1327,9 +1338,11 @@ function renderStoryLog() {
       ? (h.impact < 0 ? ` — lost ${Math.abs(h.impact)} HP` : h.impact > 0 ? ` — recovered ${h.impact} HP` : ' — unscathed')
       : '';
     const rollText = h.roll ? ` <span class="log-roll">d20: ${escapeHtml(h.roll)}${h.rollLabel ? ` · ${escapeHtml(h.rollLabel)}` : ''}</span>` : '';
+    const lootText = h.loot ? `<div class="log-loot">Found: ${escapeHtml(h.loot)}</div>` : '';
     return `<li class="log-item">
       <div class="log-player">${escapeHtml(h.player)}${impactText}${rollText}</div>
       ${h.choice ? `<div class="log-choice">"${escapeHtml(h.choice)}"</div>` : ''}
+      ${lootText}
     </li>`;
   }).join('');
 }
