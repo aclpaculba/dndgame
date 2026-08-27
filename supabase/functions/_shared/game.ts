@@ -83,6 +83,22 @@ function describeImpact(name: string, impact: number): string {
   return `${name} comes through unscathed.`;
 }
 
+function fallbackStory(kickoff: boolean, actingName: string) {
+  if (kickoff) {
+    return {
+      narrative: 'The rekindled ember throws a thin ring of light across the ruins. Beyond it, something shifts in the dark. The night is listening.',
+      healthImpact: 0,
+      choices: ['Search the ruins for a safer path', 'Call into the darkness', 'Keep watch beside the ember'],
+    };
+  }
+
+  return {
+    narrative: `${actingName}'s choice changes the shape of the silence. The ember burns lower, but a narrow path appears beyond the ash.`,
+    healthImpact: 0,
+    choices: ['Follow the newly revealed path', 'Protect the ember', 'Wait and listen'],
+  };
+}
+
 export async function generateOne(
   db: SupabaseClient,
   opts: { sessionId: string; choiceIndex?: number; kickoff?: boolean },
@@ -127,7 +143,15 @@ There is no prior choice yet, so set healthImpact to 0 and write only the openin
 Write the outcome of that choice for ${actingPlayer.display_name} and give the next three choices for whichever player will act next.`;
   }
 
-  const result = await callStoryteller(apiKey, SYSTEM_PROMPT, userPrompt);
+  let result;
+  try {
+    result = await callStoryteller(apiKey, SYSTEM_PROMPT, userPrompt);
+  } catch (error) {
+    const message = String(error);
+    if (!message.includes('429') && !message.toLowerCase().includes('quota')) throw error;
+    console.warn('Gemini quota reached; using fallback story.', message);
+    result = fallbackStory(!!kickoff, actingPlayer.display_name);
+  }
 
   let updatedPlayers = players;
   let narrative = String(result.narrative || '');
