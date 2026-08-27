@@ -15,6 +15,9 @@ You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching
 - "soulsGained" is an integer from 0 to 5000. Souls are both currency and XP; award them for meaningful victories, not ordinary movement.
 - Souls pay for levels at 100 × current level. Each level grants 3 stat points; the maximum level and stat are 99 and 20. Mention physical or mental transformation when a level-up occurs, but leave allocation to the player.
 - Inventory uses weapon, off-hand, armor, helm, boots, ring1, and ring2 slots. Items may have requirements, bonuses, consumable effects, and weight; never grant impossible equipment without narrative justification.
+- Enemies are territorial: place them in named regions, show them before they notice the party, and offer fight, sneak, observe, bait, or retreat. Enemies do not chase beyond their territory and respawn when the party rests at a bonfire.
+- Bosses belong to marked lairs and do not roam. Treat entering a lair as the deliberate trigger for the boss encounter; a boss room should close behind the party only after engagement. Describe boss phases at 75%, 50%, and 25% HP thresholds.
+- Always describe visible enemies and their behavior before combat. A stealth action uses DEX, retreat uses CHA, and observation uses WIS when those approaches fit the scene.
 - For a fallen character, remember their achievements and treat Ghost Mode as a spectator state. Resurrection, when permitted by the engine, costs 1,000 souls and may grant a permanent Flame-Touched-style mark.
 - Death is permanent unless the engine explicitly reports a resurrection. Narrate death with weight and never resolve resurrection or level-up math yourself.
 - "choices" are exactly three distinct, contextually relevant options for the NEXT player's turn, each under 70 characters, written as second-person actions.`;
@@ -207,11 +210,11 @@ function describeBossImpact(bossName: string, impact: number): string {
 function fallbackStory(kickoff: boolean, actingName: string) {
   if (kickoff) {
     return {
-      narrative: 'The rekindled ember throws a thin ring of light across the ruins. Beyond it, something shifts in the dark. The night is listening.',
+      narrative: `THE BONFIRE FLICKERS\n\nYou awaken at a crumbling bonfire. The sky is the color of ash. You remember nothing but the fire choosing you. Your companions stir beside you: six souls, six destinies, all beginning at the same flame.\n\nThe curse of undeath follows you. The world is dying. Before you stand, you must remember who you are.`,
       healthImpact: 0,
       bossImpact: 0,
       relevantStat: 'constitution',
-      choices: ['Search the ruins for a safer path', 'Call into the darkness', 'Keep watch beside the ember'],
+      choices: ['Begin character creation', 'Listen to the fire', 'Wake your companions'],
     };
   }
 
@@ -360,9 +363,8 @@ Narrate this moment vividly, then give the next three choices for whichever play
       return;
     }
 
-    if (aliveCount <= 1) {
-      const winner = updatedPlayers.find((p: any) => p.is_alive);
-      const summary = `${narrative}\n\n${winner ? `${winner.display_name} is the last signal still active.` : 'No one survived the night.'}`;
+    if (aliveCount === 0) {
+      const summary = `${narrative}\n\nNo one survived the night. The flame fades, and this story is over.`;
       const { error: itemLossError } = await db.from('sessions').update({
         status: 'completed',
         boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: newBossHealth,
@@ -414,7 +416,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
   if (kickoff) {
     userPrompt = `Begin a brand-new session for ${players.length} player(s): ${players.map((p: any) => p.display_name).join(', ')}.
 The party faces a boss called ${bossName}.
-There is no prior choice yet, so set healthImpact and bossImpact to 0 and write only the opening scene, introducing the boss without stating its health. The first three choices are for ${actingPlayer.display_name}, a ${actingPlayer.race} ${actingPlayer.class} carrying: ${inventoryText}.`;
+There is no prior choice yet. Set healthImpact, bossImpact, and soulsGained to 0. Begin at the bonfire with the canonical opening: the player awakens at a crumbling bonfire beneath an ash-colored sky, remembers only that the fire chose them, and sees their companions stir. Do not introduce the boss yet. The first three choices are for ${actingPlayer.display_name}, a ${actingPlayer.race} ${actingPlayer.class} carrying: ${inventoryText}.`;
   } else {
     const choices: string[] = session.story_choices ?? [];
     const chosenText = choices[choiceIndex!];
@@ -567,9 +569,8 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     return;
   }
 
-  if (!kickoff && aliveCount <= 1) {
-    const winner = updatedPlayers.find((p: any) => p.is_alive);
-    const summary = `${narrative}\n\n${winner ? `${winner.display_name} is the last signal still active.` : 'No one survived the night.'}`;
+  if (!kickoff && aliveCount === 0) {
+    const summary = `${narrative}\n\nNo one survived the night. The flame fades, and this story is over.`;
     const { error: lossUpdateError } = await db.from('sessions').update({
       status: 'completed',
       boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: bossHealth,

@@ -305,6 +305,7 @@
             <span id="boss-name" class="boss-name">The Nameless Dread</span>
             <span id="boss-health-num" class="boss-health-num">100 / 100</span>
           </div>
+          <div id="boss-phase" class="boss-phase">Phase 1 · Watching</div>
           <div class="boss-health-track">
             <div id="boss-health-fill" class="boss-health-fill" style="width:100%"></div>
           </div>
@@ -315,6 +316,11 @@
             <span id="map-location">Fireshrine</span>
           </div>
           <div id="mini-map" class="mini-map" role="img" aria-label="A small map of the current region"></div>
+          <div id="map-popover" class="map-popover hidden" role="dialog" aria-live="polite">
+            <button id="map-popover-close" class="map-popover-close" type="button" aria-label="Close map details">×</button>
+            <strong id="map-popover-title"></strong>
+            <span id="map-popover-description"></span>
+          </div>
         </section>
         <div id="story-text" class="story-text" role="article" aria-live="polite">
           The fire has not yet been lit…

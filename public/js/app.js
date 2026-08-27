@@ -865,8 +865,8 @@ async function seedLocalOpening(sessionId) {
   const { error } = await sb.from('sessions').update({
     status: 'active',
     current_turn_index: 0,
-    story_narrative: 'The rekindled ember throws a thin ring of light across the ruins. Beyond it, something shifts in the dark. The night is listening.',
-    story_choices: ['Search the ruins for a safer path', 'Call into the darkness', 'Keep watch beside the ember'],
+    story_narrative: 'THE BONFIRE FLICKERS\n\nYou awaken at a crumbling bonfire. The sky is the color of ash. You remember nothing but the fire choosing you. Your companions stir beside you: six souls, six destinies, all beginning at the same flame.\n\nThe curse of undeath follows you. The world is dying. Before you stand, you must remember who you are.',
+    story_choices: ['Begin character creation', 'Listen to the fire', 'Wake your companions'],
     story_history: [],
     updated_at: new Date().toISOString(),
   }).eq('id', sessionId);
@@ -1014,13 +1014,32 @@ function renderAshenMap() {
   const map = $('mini-map');
   if (!map) return;
   const rooms = ['Ash', 'Gate', 'Garden', 'Shrine', 'Crypt', 'Tower', 'Marsh', 'Keep', 'Throne'];
+  const details = [
+    'Safe zone. Rest at the bonfire and prepare.', 'Enemy territory. Hollow Soldiers patrol the gate.',
+    'Enemy territory. Beasts stalk the darkroot paths.', 'Safe zone. The fire remembers your name.',
+    'Enemy territory. Skeletons wait beneath the stones.', 'Enemy territory. Knights defend the broken tower.',
+    'Enemy territory. Infected wander through the mist.', 'Enemy territory. Thieves guard the sealed keep.',
+    'Boss lair. The throne room belongs to the Ashen Sovereign.'
+  ];
+  const markers = ['●', '🔴', '🔴', '●', '🔴', '🔴', '🔴', '🔴', '👑'];
+  ];
   const pathIndex = Math.min(rooms.length - 1, Math.floor((latestSession?.story_history?.length || 0) / 2));
   map.innerHTML = rooms.map((room, index) => `
-    <span class="map-node ${index === pathIndex ? 'current' : ''} ${index < pathIndex ? 'visited' : ''}" title="${room}">${index === pathIndex ? '◆' : '·'}</span>
+    <button class="map-node ${index === pathIndex ? 'current' : ''} ${index < pathIndex ? 'visited' : ''}" type="button" data-map-index="${index}" aria-label="View ${room}">${index === pathIndex ? '◆' : markers[index]}</button>
   `).join('');
   const location = $('map-location');
   if (location) location.textContent = rooms[pathIndex];
+  map.querySelectorAll('[data-map-index]').forEach(node => {
+    node.addEventListener('click', () => {
+      const index = Number(node.dataset.mapIndex);
+      $('map-popover-title').textContent = rooms[index];
+      $('map-popover-description').textContent = details[index];
+      $('map-popover')?.classList.remove('hidden');
+    });
+  });
 }
+
+$('map-popover-close')?.addEventListener('click', () => $('map-popover')?.classList.add('hidden'));
 
 function renderHallOfDead() {
   const hall = $('hall-of-dead');
@@ -1157,12 +1176,16 @@ function renderGame() {
   const bossNameEl = $('boss-name');
   const bossHealthNumEl = $('boss-health-num');
   const bossHealthFillEl = $('boss-health-fill');
+  const bossPhaseEl = $('boss-phase');
   if (bossNameEl && bossHealthNumEl && bossHealthFillEl) {
     const bossMax = latestSession.boss_max_health || 100;
     const bossHealth = Math.max(0, Math.min(bossMax, latestSession.boss_health ?? bossMax));
     const bossPct = bossMax > 0 ? Math.round((bossHealth / bossMax) * 100) : 0;
     bossNameEl.textContent = latestSession.boss_name || 'The Nameless Dread';
     bossHealthNumEl.textContent = `${bossHealth} / ${bossMax}`;
+    if (bossPhaseEl) {
+      bossPhaseEl.textContent = bossHealth <= 0 ? 'Defeated' : bossPct <= 25 ? 'Phase 4 · Enraged' : bossPct <= 50 ? 'Phase 3 · Aggressive' : bossPct <= 75 ? 'Phase 2 · Awakened' : 'Phase 1 · Watching';
+    }
     bossHealthFillEl.style.width = `${bossPct}%`;
     bossHealthFillEl.style.background = bossHealth <= 0
       ? 'var(--text-muted)'

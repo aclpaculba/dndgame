@@ -989,6 +989,14 @@ h1, h2, h3, h4, .topbar-brand, .boss-name {
   letter-spacing: 0.02em;
 }
 
+.boss-phase {
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .boss-health-num {
   font-size: 0.75rem;
   color: var(--text-muted);
@@ -1476,6 +1484,7 @@ body.theme-plain *::after {
 }
 
 .mini-map-panel {
+  position: relative;
   padding: var(--space-md);
   background: rgba(0, 0, 0, 0.16);
   border: 1px solid var(--glass-border);
@@ -1514,6 +1523,17 @@ body.theme-plain *::after {
   border: 1px solid rgba(213, 180, 115, 0.12);
   background: rgba(255, 255, 255, 0.025);
   font-size: 0.9rem;
+  cursor: pointer;
+  font-family: var(--font-family);
+  transition: all var(--transition-fast);
+}
+
+.map-node:hover,
+.map-node:focus-visible {
+  transform: translateY(-1px);
+  border-color: #d18a4b;
+  color: #f0c477;
+  outline: none;
 }
 
 .map-node.visited {
@@ -1525,4 +1545,43 @@ body.theme-plain *::after {
   color: #f0c477;
   border-color: #d18a4b;
   box-shadow: inset 0 0 12px rgba(209, 138, 75, 0.2);
+}
+
+.map-popover {
+  position: absolute;
+  z-index: 3;
+  top: 52px;
+  right: var(--space-md);
+  left: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-sm) var(--space-md);
+  background: #211d18;
+  border: 1px solid #d18a4b;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+}
+
+.map-popover strong {
+  color: #f0c477;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+}
+
+.map-popover span {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.map-popover-close {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
 }
