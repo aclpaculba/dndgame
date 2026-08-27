@@ -295,10 +295,24 @@
         </div>
       </aside>
 
-      <div class="story-panel" role="main">
-        <div id="story-text" class="story-text" role="article" aria-live="polite">The fire has not yet been lit…
+            <div class="story-panel" role="main">
+        <div id="boss-panel" class="boss-panel" aria-label="Boss">
+          <div class="boss-name-row">
+            <span id="boss-name" class="boss-name">The Nameless Dread</span>
+            <span id="boss-health-num" class="boss-health-num">100 / 100</span>
+          </div>
+          <div class="boss-health-track">
+            <div id="boss-health-fill" class="boss-health-fill" style="width:100%"></div>
+          </div>
+        </div>
+        <div id="story-text" class="story-text" role="article" aria-live="polite">
+          The fire has not yet been lit…
         </div>
         <div id="choices" class="choices" role="group" aria-label="Story choices"></div>
+        <div id="inventory-panel" class="inventory-panel hidden" aria-label="Inventory">
+          <h4>Your Inventory</h4>
+          <div id="inventory-list" class="inventory-list"></div>
+        </div>
         <p id="story-status" class="story-status" role="status"></p>
       </div>
 

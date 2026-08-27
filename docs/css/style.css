@@ -925,7 +925,93 @@ body {
   border-left: 3px solid #6c5ce7;
   min-height: 120px;
 }
+/* Boss health bar */
+.boss-panel {
+  background: rgba(225, 112, 85, 0.06);
+  border: 1px solid rgba(225, 112, 85, 0.3);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+}
 
+.boss-name-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.boss-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #e17055;
+  letter-spacing: 0.02em;
+}
+
+.boss-health-num {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.boss-health-track {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.boss-health-fill {
+  height: 100%;
+  background: linear-gradient(135deg, #e17055, #d63031);
+  transition: width var(--transition-slow);
+}
+
+/* Inventory panel — only shown to the acting player on their turn */
+.inventory-panel {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.inventory-panel h4 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: var(--space-sm);
+}
+
+.inventory-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.inventory-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-sm);
+}
+
+.inventory-item .item-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.inventory-item .item-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.inventory-item .item-description {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
 .choices {
   display: flex;
   flex-direction: column;
