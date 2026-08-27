@@ -1,157 +1,392 @@
-// ============================================================
-// MASTER RESET - NO PASSWORD REQUIRED
-// ============================================================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Last Ember — Character-Driven Survival</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
 
-// ---------- Master Reset Button - Open Modal ----------
-const resetOpenBtn = document.getElementById('btn-master-reset-open');
-if (resetOpenBtn) {
-  resetOpenBtn.addEventListener('click', function(e) {
-    console.log('🔄 Reset button clicked!');
-    
-    if (!currentUser) {
-      toast('Please login first.', 3000, 'error');
-      return;
-    }
-    
-    const sessionId = currentSessionId || currentUser?.activeSessionId;
-    if (!sessionId) {
-      toast('Join or create a session first.', 3000, 'error');
-      return;
-    }
-    
-    // Clear previous error
-    const errEl = document.getElementById('reset-error');
-    if (errEl) errEl.textContent = '';
-    
-    // Show the modal
-    const modal = document.getElementById('modal-reset');
-    if (modal) {
-      modal.showModal();
-      console.log('✅ Reset modal opened');
-    } else {
-      console.error('❌ Modal element not found!');
-      toast('Modal not found.', 3000, 'error');
-    }
-  });
-} else {
-  console.error('❌ Reset button not found!');
-}
+  <!-- ================= AUTH SCREEN ================= -->
+  <section id="screen-auth" class="screen active" role="main" aria-label="Login screen">
+    <div class="auth-card glass-card">
+      <div class="brand">
+        <span class="brand-icon">🔥</span>
+        <h1>Last <span class="text-gradient">Ember</span></h1>
+        <p class="brand-sub">A character-driven tale of survival</p>
+      </div>
 
-// ---------- Reset Cancel Button ----------
-const resetCancelBtn = document.getElementById('btn-reset-cancel');
-if (resetCancelBtn) {
-  resetCancelBtn.addEventListener('click', function() {
-    const modal = document.getElementById('modal-reset');
-    if (modal) modal.close();
-    console.log('Reset cancelled');
-  });
-}
+      <form id="form-name" class="auth-form" autocomplete="off">
+        <label for="name-input">
+          Your name
+          <input 
+            type="text" 
+            id="name-input" 
+            class="input-modern"
+            required 
+            maxlength="24" 
+            autocomplete="off" 
+            placeholder="Enter your name..."
+            aria-describedby="name-error"
+          />
+        </label>
+        <p class="form-error" id="name-error" role="alert"></p>
+        <button type="submit" class="btn btn-primary btn-lg">
+          <span>Continue</span>
+          <span aria-hidden="true">→</span>
+        </button>
+      </form>
+    </div>
+  </section>
 
-// ---------- Reset Confirm Button (NO PASSWORD) ----------
-const resetConfirmBtn = document.getElementById('btn-reset-confirm');
-if (resetConfirmBtn) {
-  resetConfirmBtn.addEventListener('click', async function() {
-    console.log('🔄 Reset confirm clicked!');
-    
-    const sessionId = currentSessionId || currentUser?.activeSessionId;
-    const errEl = document.getElementById('reset-error');
-    
-    // Clear previous error
-    if (errEl) errEl.textContent = '';
-    
-    // Validate
-    if (!sessionId) {
-      if (errEl) errEl.textContent = 'No active session to reset.';
-      return;
-    }
-    
-    // Disable button while processing
-    const confirmBtn = this;
-    confirmBtn.disabled = true;
-    confirmBtn.textContent = '⏳ Resetting...';
-    
-    try {
-      console.log(`📤 Sending reset request for session: ${sessionId}`);
-      
-      const { data, error } = await sb.functions.invoke('master-reset', {
-        body: { 
-          sessionId: sessionId, 
-          userId: currentUser.uid
-        },
-      });
-      
-      console.log('📥 Reset response:', { data, error });
-      
-      if (error) {
-        console.error('❌ Reset error:', error);
-        const errorMsg = error.message || 'Server error.';
-        if (errEl) errEl.textContent = errorMsg;
-        toast('❌ Reset failed: ' + errorMsg, 4000, 'error');
-        return;
-      }
-      
-      // Success!
-      console.log('✅ Reset successful!', data);
-      
-      // Close modal
-      const modal = document.getElementById('modal-reset');
-      if (modal) modal.close();
-      
-      toast('🔄 Session has been completely wiped and reset!', 3000, 'success');
-      
-      // Refresh the game state
-      if (typeof refreshGameState === 'function') {
-        await refreshGameState();
-      }
-      
-      // If we're in the lobby, refresh the lobby list
-      const lobbyScreen = document.getElementById('screen-lobby');
-      if (lobbyScreen && lobbyScreen.classList.contains('active')) {
-        if (typeof refreshLobbyList === 'function') {
-          refreshLobbyList();
-        }
-      }
-      
-      // If we're in the game, reload
-      const gameScreen = document.getElementById('screen-game');
-      if (gameScreen && gameScreen.classList.contains('active')) {
-        if (typeof enterGame === 'function') {
-          enterGame(sessionId);
-        }
-      }
-      
-    } catch (err) {
-      console.error('❌ Unexpected reset error:', err);
-      if (errEl) errEl.textContent = err.message || 'Something went wrong.';
-      toast('❌ Reset failed: ' + (err.message || 'Unknown error'), 4000, 'error');
-    } finally {
-      // Re-enable button
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = 'Yes, Reset Session';
-    }
-  });
-} else {
-  console.error('❌ Reset confirm button not found!');
-}
+  <!-- ================= CHARACTER SELECTION SCREEN ================= -->
+  <section id="screen-characters" class="screen" role="main" aria-label="Character selection">
+    <header class="topbar" role="banner">
+      <div class="topbar-brand">
+        <span class="brand-mark">🔥</span>
+        <span>Last Ember</span>
+      </div>
+      <div class="topbar-actions">
+        <span id="char-username" class="user-pill"></span>
+        <button id="btn-char-logout" class="btn btn-ghost btn-sm">Sign out</button>
+      </div>
+    </header>
 
-// ---------- Close modal on backdrop click ----------
-const resetModal = document.getElementById('modal-reset');
-if (resetModal) {
-  resetModal.addEventListener('click', function(e) {
-    if (e.target === this) {
-      this.close();
-      console.log('Modal closed by backdrop click');
-    }
-  });
-}
+    <main class="char-main">
+      <div class="char-header">
+        <h2>⚔️ Your Characters</h2>
+        <p class="text-secondary">Select a character for your adventure, or create a new one.</p>
+      </div>
 
-// ---------- Close modal with Escape key ----------
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape') {
-    const modal = document.getElementById('modal-reset');
-    if (modal && modal.open) {
-      modal.close();
-      console.log('Modal closed with Escape key');
-    }
-  }
-});
+      <div id="character-list" class="character-list">
+        <p class="text-muted" style="padding: var(--space-lg); text-align: center; grid-column: 1 / -1;">
+          Loading characters...
+        </p>
+      </div>
+
+      <button id="btn-create-character" class="btn btn-primary btn-lg" style="width: 100%; margin-top: var(--space-md);">
+        ✦ Create New Character
+      </button>
+    </main>
+  </section>
+
+  <!-- ================= CHARACTER CREATION MODAL ================= -->
+  <dialog id="modal-character-creation" class="modal" role="dialog" aria-labelledby="creation-title">
+    <div class="modal-card glass-card" style="max-width: 600px; max-height: 90vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: var(--space-md);">
+        <h3 id="creation-title">⚔️ Create Your Character</h3>
+        <button id="btn-creation-close" class="btn btn-ghost" style="font-size: 1.5rem; padding: 0 8px;">×</button>
+      </div>
+      
+      <form id="form-character-creation" class="char-creation-form">
+        <!-- Step 1: Basic Info -->
+        <div id="char-step-1" class="char-step active">
+          <label>
+            Character Name
+            <input type="text" id="char-name" class="input-modern" required maxlength="24" placeholder="e.g., Sir Alric" />
+          </label>
+          <label>
+            Race
+            <select id="char-race" class="input-modern">
+              <option value="Human">Human</option>
+              <option value="Elf">Elf</option>
+              <option value="Dwarf">Dwarf</option>
+              <option value="Halfling">Halfling</option>
+              <option value="Gnome">Gnome</option>
+              <option value="Half-Elf">Half-Elf</option>
+              <option value="Half-Orc">Half-Orc</option>
+            </select>
+          </label>
+          <label>
+            Class
+            <select id="char-class" class="input-modern">
+              <option value="Fighter">⚔️ Fighter</option>
+              <option value="Rogue">🗡️ Rogue</option>
+              <option value="Cleric">✨ Cleric</option>
+              <option value="Wizard">🔮 Wizard</option>
+              <option value="Ranger">🏹 Ranger</option>
+              <option value="Paladin">🛡️ Paladin</option>
+              <option value="Bard">🎵 Bard</option>
+              <option value="Druid">🌿 Druid</option>
+            </select>
+          </label>
+          <button type="button" class="btn btn-primary" onclick="showCharStep(2)">Next →</button>
+        </div>
+
+        <!-- Step 2: Stats -->
+        <div id="char-step-2" class="char-step">
+          <h4 style="margin-bottom: var(--space-xs);">Assign Your Stats</h4>
+          <p class="text-secondary" style="font-size: 0.9rem; margin-bottom: var(--space-md);">
+            Points remaining: <span id="stat-points-remaining" style="font-weight: 700; color: var(--text-primary);">27</span>
+          </p>
+          
+          <div class="stat-row">
+            <label>Strength (STR)</label>
+            <div class="stat-control">
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="strength" data-dir="-1">−</button>
+              <span id="stat-strength" class="stat-value">8</span>
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="strength" data-dir="1">+</button>
+              <span class="stat-modifier" id="mod-strength">-1</span>
+            </div>
+          </div>
+          
+          <div class="stat-row">
+            <label>Dexterity (DEX)</label>
+            <div class="stat-control">
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="dexterity" data-dir="-1">−</button>
+              <span id="stat-dexterity" class="stat-value">8</span>
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="dexterity" data-dir="1">+</button>
+              <span class="stat-modifier" id="mod-dexterity">-1</span>
+            </div>
+          </div>
+          
+          <div class="stat-row">
+            <label>Constitution (CON)</label>
+            <div class="stat-control">
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="constitution" data-dir="-1">−</button>
+              <span id="stat-constitution" class="stat-value">8</span>
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="constitution" data-dir="1">+</button>
+              <span class="stat-modifier" id="mod-constitution">-1</span>
+            </div>
+          </div>
+          
+          <div class="stat-row">
+            <label>Intelligence (INT)</label>
+            <div class="stat-control">
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="intelligence" data-dir="-1">−</button>
+              <span id="stat-intelligence" class="stat-value">8</span>
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="intelligence" data-dir="1">+</button>
+              <span class="stat-modifier" id="mod-intelligence">-1</span>
+            </div>
+          </div>
+          
+          <div class="stat-row">
+            <label>Wisdom (WIS)</label>
+            <div class="stat-control">
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="wisdom" data-dir="-1">−</button>
+              <span id="stat-wisdom" class="stat-value">8</span>
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="wisdom" data-dir="1">+</button>
+              <span class="stat-modifier" id="mod-wisdom">-1</span>
+            </div>
+          </div>
+          
+          <div class="stat-row">
+            <label>Charisma (CHA)</label>
+            <div class="stat-control">
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="charisma" data-dir="-1">−</button>
+              <span id="stat-charisma" class="stat-value">8</span>
+              <button type="button" class="btn btn-sm btn-secondary stat-btn" data-stat="charisma" data-dir="1">+</button>
+              <span class="stat-modifier" id="mod-charisma">-1</span>
+            </div>
+          </div>
+          
+          <div style="display: flex; gap: var(--space-sm); margin-top: var(--space-lg);">
+            <button type="button" class="btn btn-secondary" onclick="showCharStep(1)">← Back</button>
+            <button type="button" class="btn btn-primary" onclick="showCharStep(3)">Next →</button>
+          </div>
+        </div>
+
+        <!-- Step 3: Background -->
+        <div id="char-step-3" class="char-step">
+          <h4 style="margin-bottom: var(--space-md);">Character Background</h4>
+          
+          <label>
+            Background
+            <select id="char-background" class="input-modern">
+              <option value="Noble">Noble</option>
+              <option value="Soldier">Soldier</option>
+              <option value="Urchin">Urchin</option>
+              <option value="Sage">Sage</option>
+              <option value="Criminal">Criminal</option>
+              <option value="Folk Hero">Folk Hero</option>
+              <option value="Acolyte">Acolyte</option>
+            </select>
+          </label>
+          
+          <label>
+            Personality Trait
+            <input type="text" id="char-personality" class="input-modern" placeholder="e.g., I'm always calm in a crisis" />
+          </label>
+          
+          <label>
+            Ideal
+            <input type="text" id="char-ideal" class="input-modern" placeholder="e.g., Greater good is worth the sacrifice" />
+          </label>
+          
+          <label>
+            Bond
+            <input type="text" id="char-bond" class="input-modern" placeholder="e.g., I must protect my homeland" />
+          </label>
+          
+          <label>
+            Flaw
+            <input type="text" id="char-flaw" class="input-modern" placeholder="e.g., I'm too trusting of strangers" />
+          </label>
+          
+          <div style="display: flex; gap: var(--space-sm); margin-top: var(--space-lg);">
+            <button type="button" class="btn btn-secondary" onclick="showCharStep(2)">← Back</button>
+            <button type="submit" class="btn btn-primary">✨ Create Character</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- ================= CHARACTER STATS MODAL ================= -->
+  <dialog id="modal-character-stats" class="modal" role="dialog" aria-labelledby="stats-title">
+    <div class="modal-card glass-card" style="max-width: 500px;">
+      <div style="display: flex; justify-content: space-between; align-items: start;">
+        <h3 id="stats-title">📊 Character Sheet</h3>
+        <button id="btn-stats-close" class="btn btn-ghost" style="font-size: 1.5rem; padding: 0 8px;">×</button>
+      </div>
+      
+      <div id="stats-content">
+        <!-- Dynamically populated -->
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ================= LOBBY SCREEN ================= -->
+  <section id="screen-lobby" class="screen" role="main" aria-label="Lobby">
+    <header class="topbar" role="banner">
+      <div class="topbar-brand">
+        <span class="brand-mark">🔥</span>
+        <span>Last Ember</span>
+      </div>
+      <div class="topbar-actions">
+        <span id="lobby-username" class="user-pill"></span>
+        <button id="lobby-char-stats" class="btn btn-secondary btn-sm">📊 Stats</button>
+        <button id="ui-mode-toggle" class="btn btn-ghost btn-sm">✨ Animated</button>
+        <button id="btn-master-reset-open" class="btn btn-ghost btn-sm" style="color: var(--health-low);">⚠️ Reset</button>
+        <button id="btn-logout" class="btn btn-ghost btn-sm">Sign out</button>
+      </div>
+    </header>
+
+    <main class="lobby-main">
+      <div class="lobby-col">
+        <h2>🎯 Your Table</h2>
+        <p class="text-secondary">Create a new session or rejoin one in progress.</p>
+        <button id="btn-create-session" class="btn btn-primary btn-lg" style="width: 100%;">
+          ✦ Create New Session
+        </button>
+        <div id="active-session-banner" class="hidden active-session-banner">
+          <span>You have an active session</span>
+          <button id="btn-resume-session" class="btn btn-secondary btn-sm">Resume →</button>
+        </div>
+      </div>
+
+      <div class="lobby-col">
+        <h2>👥 Joinable Tables</h2>
+        <p class="text-secondary">Pick a table to join the adventure.</p>
+        <div id="session-list" class="session-list">
+          <p class="text-muted" id="session-list-empty" style="padding: var(--space-lg); text-align: center;">
+            No open sessions — create one above.
+          </p>
+        </div>
+      </div>
+    </main>
+  </section>
+
+  <!-- ================= GAME SCREEN ================= -->
+  <section id="screen-game" class="screen" role="main" aria-label="Game">
+    <header class="topbar" role="banner">
+      <div class="topbar-brand">
+        <span class="brand-mark">🔥</span>
+        <span>Last Ember</span>
+      </div>
+      <div class="topbar-actions">
+        <span id="game-session-code" class="user-pill"></span>
+        <button id="game-char-stats" class="btn btn-secondary btn-sm">📊 Stats</button>
+        <button id="ui-mode-toggle-2" class="btn btn-ghost btn-sm">✨ Animated</button>
+        <button id="btn-leave-session" class="btn btn-ghost btn-sm">✕ Leave</button>
+      </div>
+    </header>
+
+    <main class="game-main">
+      <aside class="player-panel" aria-label="Players">
+        <h3>Players</h3>
+        <ul id="player-list" class="player-list" role="list"></ul>
+        <div class="turn-indicator" id="turn-indicator" role="status">
+          Waiting for players…
+        </div>
+      </aside>
+
+      <div class="story-panel" role="main">
+        <div id="story-text" class="story-text" role="article" aria-live="polite">
+          The fire has not yet been lit…
+        </div>
+        <div id="choices" class="choices" role="group" aria-label="Story choices"></div>
+        <p id="story-status" class="story-status" role="status"></p>
+      </div>
+
+      <aside class="activity-panel" aria-label="Activity">
+        <div class="activity-section">
+          <h3>📜 Story Log</h3>
+          <ul id="story-log" class="story-log" role="list"></ul>
+        </div>
+        <div class="activity-section chat-section">
+          <h3>💬 Table Chat</h3>
+          <div id="chat-messages" class="chat-messages" role="log" aria-live="polite"></div>
+          <form id="form-chat" class="chat-form" autocomplete="off">
+            <input 
+              type="text" 
+              id="chat-input" 
+              class="input-modern" 
+              maxlength="500" 
+              autocomplete="off" 
+              placeholder="Say something…"
+              aria-label="Chat message"
+            />
+            <button type="submit" class="btn btn-secondary btn-sm">Send</button>
+          </form>
+        </div>
+      </aside>
+    </main>
+  </section>
+
+  <!-- ================= END SCREEN ================= -->
+  <section id="screen-end" class="screen" role="main" aria-label="Game over">
+    <div class="end-card glass-card">
+      <span style="font-size: 3rem; display: block; margin-bottom: var(--space-sm);">🏆</span>
+      <h1 id="end-title">The tale is told</h1>
+      <p id="end-summary" class="end-summary"></p>
+      <div class="end-actions">
+        <button id="btn-back-to-lobby" class="btn btn-primary">Return to Lobby</button>
+      </div>
+      <p class="text-muted" style="font-size: 0.8rem; margin-top: var(--space-md);">
+        This table has reset — ready for the next tale.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= MASTER RESET MODAL (NO PASSWORD) ================= -->
+  <dialog id="modal-reset" class="modal" role="dialog" aria-labelledby="modal-title">
+    <div class="modal-card glass-card">
+      <h3 id="modal-title">⚠️ Master Reset</h3>
+      <p class="text-secondary" style="margin-bottom: var(--space-md);">
+        This wipes the current session — all players, health, story, and turn order.
+        Are you sure you want to continue?
+      </p>
+      <p class="form-error" id="reset-error" role="alert"></p>
+      <div class="modal-actions" style="display: flex; gap: var(--space-sm); margin-top: var(--space-md);">
+        <button id="btn-reset-cancel" class="btn btn-ghost">Cancel</button>
+        <button id="btn-reset-confirm" class="btn btn-danger">Yes, Reset Session</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ================= TOAST ================= -->
+  <div id="toast" class="toast hidden" role="alert"></div>
+
+  <!-- ================= SCRIPTS ================= -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
