@@ -787,7 +787,6 @@ function createRandomCharacter() {
   const classes = ['Fighter', 'Rogue', 'Cleric', 'Wizard', 'Ranger', 'Paladin', 'Bard', 'Druid'];
   const backgrounds = ['Noble', 'Soldier', 'Urchin', 'Sage', 'Criminal', 'Folk Hero', 'Acolyte'];
   const pick = values => values[Math.floor(Math.random() * values.length)];
-  const classes = ['Fighter', 'Rogue', 'Cleric', 'Wizard', 'Ranger', 'Paladin', 'Bard', 'Druid'];
   const chosenClass = pick(classes);
   const classBonuses = {
     Fighter: { strength: 2, constitution: 1 }, Rogue: { dexterity: 2, charisma: 1 },
