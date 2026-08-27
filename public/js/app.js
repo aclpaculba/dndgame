@@ -632,56 +632,10 @@ document.addEventListener('click', (e) => {
 
 $('form-character-creation')?.addEventListener('submit', async (e) => {
   e.preventDefault();
-  
-  const classResponse = await sb.functions.invoke('assign-class', {
-    body: { userId: currentUser.uid },
-  });
-  if (classResponse.error) {
-    const message = await extractFunctionError(classResponse.error, classResponse.data);
-    toast(`Hero creation failed: ${message}`, 5000, 'error');
-    return;
-  }
-
-  const generated = classResponse.data?.character;
-  const generatedStats = generated?.stats || {};
-  const charData = {
-    name: generated?.name || 'The Nameless Ember',
-    race: generated?.race || 'Human',
-    class: generated?.class || 'Fighter',
-    level: 1,
-    strength: generatedStats.strength || 8,
-    dexterity: generatedStats.dexterity || 8,
-    constitution: generatedStats.constitution || 8,
-    intelligence: generatedStats.intelligence || 8,
-    wisdom: generatedStats.wisdom || 8,
-    charisma: generatedStats.charisma || 8,
-    background: generated?.background || '',
-    personality: generated?.personality || '',
-    ideal: generated?.ideal || '',
-    bond: generated?.bond || '',
-    flaw: generated?.flaw || ''
-  };
-  
-  const savedCharacter = await saveCharacter(charData);
-  if (!savedCharacter || !pendingTableStartSessionId) return;
-
-  currentCharacter = savedCharacter;
-  localStorage.setItem(CHAR_STORAGE_KEY, savedCharacter.id);
-  await sb.from('players').update({
-    display_name: savedCharacter.name,
-    character_id: savedCharacter.id,
-  }).eq('session_id', pendingTableStartSessionId).eq('user_id', currentUser.uid);
-
+  if (!pendingTableStartSessionId) return;
   const sessionId = pendingTableStartSessionId;
   pendingTableStartSessionId = null;
-  const { data: kickoffData, error: kickoffError } = await sb.functions.invoke('generate-story', {
-    body: { sessionId, userId: currentUser.uid, kickoff: true },
-  });
-  if (kickoffError) {
-    const message = await extractFunctionError(kickoffError, kickoffData);
-    toast(`Story kickoff failed: ${message}`, 5000, 'error');
-  }
-  await refreshGameState();
+  await startTableWithRandomCharacter(sessionId);
 });
 
 // ---------- UI Mode Toggle ----------
@@ -836,8 +790,23 @@ async function startTableWithRandomCharacter(sessionId) {
   const { data: kickoffData, error: kickoffError } = await sb.functions.invoke('generate-story', {
     body: { sessionId, userId: currentUser.uid, kickoff: true },
   });
-  if (kickoffError) throw new Error(await extractFunctionError(kickoffError, kickoffData));
+  if (kickoffError) {
+    console.warn('Story kickoff unavailable; using local opening.', await extractFunctionError(kickoffError, kickoffData));
+    await seedLocalOpening(sessionId);
+  }
   await refreshGameState();
+}
+
+async function seedLocalOpening(sessionId) {
+  const { error } = await sb.from('sessions').update({
+    status: 'active',
+    current_turn_index: 0,
+    story_narrative: 'The rekindled ember throws a thin ring of light across the ruins. Beyond it, something shifts in the dark. The night is listening.',
+    story_choices: ['Search the ruins for a safer path', 'Call into the darkness', 'Keep watch beside the ember'],
+    story_history: [],
+    updated_at: new Date().toISOString(),
+  }).eq('id', sessionId);
+  if (error) throw error;
 }
 
 $('btn-create-session')?.addEventListener('click', async () => {
@@ -1076,7 +1045,9 @@ async function retryKickoff() {
   if (error) {
     const message = await extractFunctionError(error, data);
     console.error('Retry kickoff failed:', message, error);
-    toast('Story kickoff failed: ' + message, 5000, 'error');
+    await seedLocalOpening(currentSessionId);
+    await refreshGameState();
+    toast('Story engine unavailable. Local opening loaded.', 5000, 'error');
     if (btn) {
       btn.disabled = false;
       btn.textContent = '🔥 Start the tale';
