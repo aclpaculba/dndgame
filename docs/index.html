@@ -291,6 +291,10 @@
       <aside class="player-panel" aria-label="Players">
         <h3>Players</h3>
         <ul id="player-list" class="player-list" role="list"></ul>
+        <section class="hall-panel" aria-labelledby="hall-title">
+          <h3 id="hall-title">Hall of the Dead</h3>
+          <div id="hall-of-dead" class="hall-of-dead">No fallen heroes yet.</div>
+        </section>
         <div class="turn-indicator" id="turn-indicator" role="status">Waiting for players…
         </div>
       </aside>
@@ -305,6 +309,13 @@
             <div id="boss-health-fill" class="boss-health-fill" style="width:100%"></div>
           </div>
         </div>
+        <section class="mini-map-panel" aria-labelledby="map-title">
+          <div class="mini-map-heading">
+            <h3 id="map-title">Ashen Map</h3>
+            <span id="map-location">Fireshrine</span>
+          </div>
+          <div id="mini-map" class="mini-map" role="img" aria-label="A small map of the current region"></div>
+        </section>
         <div id="story-text" class="story-text" role="article" aria-live="polite">
           The fire has not yet been lit…
         </div>

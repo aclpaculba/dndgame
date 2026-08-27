@@ -1000,6 +1000,37 @@ function renderPlayerStats(character) {
   }).join('')}</div>`;
 }
 
+function renderPlayerInventory(player) {
+  const inventory = Array.isArray(player.inventory) ? player.inventory : [];
+  if (!inventory.length) return '<div class="player-stats-empty">No items carried</div>';
+  return `<div class="player-inventory-list">${inventory.map(item => `
+    <div class="player-inventory-item">
+      <span>${escapeHtml(item.name || 'Unknown item')}</span>
+      <small>${escapeHtml(item.description || '')}</small>
+    </div>`).join('')}</div>`;
+}
+
+function renderAshenMap() {
+  const map = $('mini-map');
+  if (!map) return;
+  const rooms = ['Ash', 'Gate', 'Garden', 'Shrine', 'Crypt', 'Tower', 'Marsh', 'Keep', 'Throne'];
+  const pathIndex = Math.min(rooms.length - 1, Math.floor((latestSession?.story_history?.length || 0) / 2));
+  map.innerHTML = rooms.map((room, index) => `
+    <span class="map-node ${index === pathIndex ? 'current' : ''} ${index < pathIndex ? 'visited' : ''}" title="${room}">${index === pathIndex ? '◆' : '·'}</span>
+  `).join('');
+  const location = $('map-location');
+  if (location) location.textContent = rooms[pathIndex];
+}
+
+function renderHallOfDead() {
+  const hall = $('hall-of-dead');
+  if (!hall) return;
+  const fallen = latestPlayers.filter(player => !player.is_alive);
+  hall.innerHTML = fallen.length
+    ? fallen.map(player => `<div class="fallen-hero"><strong>${escapeHtml(player.display_name)}</strong><span>Level ${player.level || 1} · ${player.death_count || 1} death</span></div>`).join('')
+    : 'No fallen heroes yet.';
+}
+
 async function refreshChatMessages() {
   if (!currentSessionId) return;
   const { data: messages } = await sb.from('messages').select('*')
@@ -1119,6 +1150,8 @@ async function retryKickoff() {
 // ---------- Render Game ----------
 function renderGame() {
   if (!latestSession) return;
+  renderAshenMap();
+  renderHallOfDead();
 
   // Boss Health Bar
   const bossNameEl = $('boss-name');
@@ -1172,19 +1205,32 @@ function renderGame() {
             <div class="p-health-fill" style="width:${pct}%;background:${color}"></div>
           </div>
           <div class="session-meta">Level ${p.level || 1} · ${p.souls || 0} souls · ${p.status || (p.is_alive ? 'Healthy' : 'Dead')}</div>
-          <button class="player-stats-toggle" type="button" aria-expanded="false">Stats</button>
+          <div class="player-detail-actions">
+            <button class="player-stats-toggle" type="button" aria-expanded="false">Stats</button>
+            <button class="player-inventory-toggle" type="button" aria-expanded="false">Inventory</button>
+          </div>
           <div class="player-stats hidden">${renderPlayerStats(character)}</div>
+          <div class="player-inventory hidden">${renderPlayerInventory(p)}</div>
         </li>
       `;
     }).join('');
 
     list.querySelectorAll('.player-stats-toggle').forEach(button => {
       button.addEventListener('click', () => {
-        const stats = button.nextElementSibling;
+        const stats = button.closest('.player-item')?.querySelector('.player-stats');
         if (!stats) return;
         const expanded = button.getAttribute('aria-expanded') === 'true';
         button.setAttribute('aria-expanded', String(!expanded));
         stats.classList.toggle('hidden', expanded);
+      });
+    });
+    list.querySelectorAll('.player-inventory-toggle').forEach(button => {
+      button.addEventListener('click', () => {
+        const inventory = button.closest('.player-item')?.querySelector('.player-inventory');
+        if (!inventory) return;
+        const expanded = button.getAttribute('aria-expanded') === 'true';
+        button.setAttribute('aria-expanded', String(!expanded));
+        inventory.classList.toggle('hidden', expanded);
       });
     });
   }

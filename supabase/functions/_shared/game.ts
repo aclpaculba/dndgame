@@ -1,9 +1,11 @@
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.46.0';
 import { callStoryteller } from './storyteller.ts';
 
-const SYSTEM_PROMPT = `You are the AI Storyteller for "Stackfall: Ashen Edition", a grim, melancholic dark-fantasy survival RPG. The party is fighting a single boss enemy that has its own health bar, shown separately from the players.
-Write intense, thrilling, vivid prose (45-90 words) with real stakes — never bland or generic. Weave in the acting player's race, class, and whichever ability score is most relevant to their action, and reference an inventory item if one fits naturally — but do this through story detail, not by stating numbers.
-Do NOT state exact numbers, health totals, or damage totals in your prose — the game engine reports those separately.
+const SYSTEM_PROMPT = `You are the AI Storyteller for "Stackfall: Ashen Edition", a grim, melancholic dark-fantasy survival RPG. Every choice matters, death is permanent unless the engine explicitly reports resurrection, and the party is fighting a living boss with a health bar.
+All characters begin from STR 10, DEX 10, CON 10, INT 10, WIS 10, CHA 10 before coherent racial, class, and background bonuses. Use the modifier bands from -5 to +5 for ability checks. Starting HP is class-based from 6-12 plus CON modifier. The engine applies the mechanics; you narrate their consequences.
+Use tabletop-style rules in your reasoning: initiative is d20 + DEX, attacks use d20 + STR/DEX + weapon bonus, damage uses weapon dice + STR/DEX, AC is 10 + DEX + armor + shield. Exploration may test STR 14 to climb, DEX 12 to pick locks, WIS 12 to perceive, INT 15 to decipher, CHA 13 to persuade, or CON 14 to survive. Social actions may use persuasion, intimidation, deception, inspiration, or insight with the relevant ability and background or item.
+Write intense, thrilling, vivid prose (45-90 words) with real stakes — never bland or generic. Weave in the acting player's race, class, personality, relevant ability, and inventory when they fit naturally.
+Do NOT state exact numbers, health totals, or damage totals in prose — the game engine reports those separately. Always make combat feel cinematic, and make death somber and memorable.
 You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching exactly:
 {"narrative": string, "healthImpact": number, "bossImpact": number, "relevantStat": string, "soulsGained": number, "choices": [string, string, string]}
 - "narrative" continues the story and describes the outcome of the acting player's last choice (or opens the tale if there is no prior choice). Keep enough ambiguity that the true severity could still go either way — the actual numbers are randomized by the engine afterward, so don't commit to a precise result in the prose.
@@ -11,6 +13,9 @@ You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching
 - "bossImpact" is your baseline suggestion for the BOSS, an integer between -30 and 10 (negative = damage dealt to the boss, positive = the boss recovering or gaining ground) — most actions aimed at the boss should deal some damage; actions that don't engage the boss directly can use 0.
 - "relevantStat" is exactly one of: strength, dexterity, constitution, intelligence, wisdom, charisma — whichever ability best explains why this action might succeed or fail.
 - "soulsGained" is an integer from 0 to 5000. Souls are both currency and XP; award them for meaningful victories, not ordinary movement.
+- Souls pay for levels at 100 × current level. Each level grants 3 stat points; the maximum level and stat are 99 and 20. Mention physical or mental transformation when a level-up occurs, but leave allocation to the player.
+- Inventory uses weapon, off-hand, armor, helm, boots, ring1, and ring2 slots. Items may have requirements, bonuses, consumable effects, and weight; never grant impossible equipment without narrative justification.
+- For a fallen character, remember their achievements and treat Ghost Mode as a spectator state. Resurrection, when permitted by the engine, costs 1,000 souls and may grant a permanent Flame-Touched-style mark.
 - Death is permanent unless the engine explicitly reports a resurrection. Narrate death with weight and never resolve resurrection or level-up math yourself.
 - "choices" are exactly three distinct, contextually relevant options for the NEXT player's turn, each under 70 characters, written as second-person actions.`;
 
@@ -289,10 +294,12 @@ export async function generateOne(
     }
 
     const newHealth = Math.max(0, Math.min(100, actingPlayer.health + playerHealthDelta));
+    const maxHealth = Math.max(1, Number(actingPlayer.max_health || 100));
+    const newHealth = Math.max(0, Math.min(maxHealth, actingPlayer.health + playerHealthDelta));
     const isAlive = newHealth > 0;
     const remainingInventory = inventory.filter((it) => it.id !== itemId);
 
-    const { error: itemPlayerUpdateError } = await db.from('players').update({ health: newHealth, is_alive: isAlive, inventory: remainingInventory })
+    const { error: itemPlayerUpdateError } = await db.from('players').update({ health: newHealth, is_alive: isAlive, inventory: remainingInventory, status: statusForHealth(newHealth, maxHealth), ghost_mode: !isAlive })
       .eq('session_id', sessionId).eq('user_id', actingUid);
     if (itemPlayerUpdateError) {
       console.error('[db] Failed to update player after item use:', JSON.stringify(itemPlayerUpdateError));
@@ -326,7 +333,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
 
     const narrative = String(result.narrative || effectSummary);
     const updatedPlayers = players.map((p: any) =>
-      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive } : p);
+      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, status: statusForHealth(newHealth, maxHealth) } : p);
     const aliveCount = updatedPlayers.filter((p: any) => p.is_alive).length;
 
     const newHistory = [...history, {
