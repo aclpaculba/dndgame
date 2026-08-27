@@ -16,7 +16,7 @@ export async function callStoryteller(apiKey: string, systemPrompt: string, user
       ],
       response_format: { type: 'json_object' },
       temperature: 1,
-      max_tokens: 900,
+      max_tokens: 3000,
     }),
   });
 

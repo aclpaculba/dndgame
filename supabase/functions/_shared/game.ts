@@ -302,9 +302,13 @@ Narrate this moment vividly, then give the next three choices for whichever play
     try {
       result = await callStoryteller(apiKey, SYSTEM_PROMPT, userPrompt);
     } catch (error) {
-      const message = String(error);
-      if (!message.includes('429') && !message.toLowerCase().includes('quota')) throw error;
-      console.warn('Story provider quota reached; using fallback story.', message);
+      // Any story-engine failure — quota, an empty/truncated response
+      // from a reasoning model that ran out of tokens thinking, a
+      // malformed reply, etc. — degrades to the local fallback rather
+      // than failing the whole turn. The item's mechanical effect has
+      // already been applied above regardless, so the player never
+      // loses their action to a flaky AI response.
+      console.warn('Story engine unavailable; using fallback story.', String(error));
       result = fallbackStory(false, actingPlayer.display_name);
     }
 
@@ -393,9 +397,10 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
   try {
     result = await callStoryteller(apiKey, SYSTEM_PROMPT, userPrompt);
   } catch (error) {
-    const message = String(error);
-    if (!message.includes('429') && !message.toLowerCase().includes('quota')) throw error;
-    console.warn('Story provider quota reached; using fallback story.', message);
+    // Same reasoning as the item-use branch above: degrade to the
+    // local fallback on any story-engine failure so a flaky or
+    // over-budget AI response never blocks a player's whole turn.
+    console.warn('Story engine unavailable; using fallback story.', String(error));
     result = fallbackStory(!!kickoff, actingPlayer.display_name);
   }
 
