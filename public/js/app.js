@@ -734,20 +734,21 @@ function enterLobby() {
 
   refreshLobbyList();
   
-  // FIX: Build channel with listeners BEFORE subscribe
+  // ✅ FIX: Remove existing channel first
   if (lobbyChannel) {
     sb.removeChannel(lobbyChannel);
     lobbyChannel = null;
   }
   
+  // ✅ FIX: Create channel and add ALL listeners BEFORE subscribe
   lobbyChannel = sb.channel('lobby-sessions');
   
-  // Add listeners
+  // Add all listeners FIRST
   lobbyChannel
     .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, refreshLobbyList)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, refreshLobbyList);
   
-  // Subscribe
+  // THEN subscribe
   lobbyChannel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
       console.log('✅ Lobby channel connected');
@@ -961,16 +962,8 @@ function enterGame(sessionId) {
   refreshGameState();
   refreshChatMessages();
 
-  // FIX: Build channel with listeners BEFORE subscribe
+  // ✅ FIX: Remove existing channel first
   if (gameChannel) {
     sb.removeChannel(gameChannel);
     gameChannel = null;
   }
-  
-  gameChannel = sb.channel('game-' + sessionId);
-  
-  // Add listeners
-  gameChannel
-    .on('postgres_changes', { 
-      event: '*', 
-      schema: 'public', 
