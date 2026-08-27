@@ -783,6 +783,63 @@ function enterLobby() {
 }
 
 // ---------- Session Management ----------
+function createRandomCharacter() {
+  const stats = getDefaultStats();
+  let remaining = 27;
+  while (remaining > 0) {
+    const available = Object.keys(stats).filter(stat => stats[stat] < 15);
+    if (!available.length) break;
+    const stat = available[Math.floor(Math.random() * available.length)];
+    const oldCost = calculatePointBuyCost(stats);
+    const nextStats = { ...stats, [stat]: stats[stat] + 1 };
+    const cost = calculatePointBuyCost(nextStats) - oldCost;
+    if (cost <= remaining) {
+      stats[stat] += 1;
+      remaining -= cost;
+    }
+  }
+
+  const races = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Gnome', 'Half-Elf', 'Half-Orc'];
+  const classes = ['Fighter', 'Rogue', 'Cleric', 'Wizard', 'Ranger', 'Paladin', 'Bard', 'Druid'];
+  const backgrounds = ['Noble', 'Soldier', 'Urchin', 'Sage', 'Criminal', 'Folk Hero', 'Acolyte'];
+  const pick = values => values[Math.floor(Math.random() * values.length)];
+
+  return {
+    name: `${currentUser.username}'s Ember`.slice(0, 24),
+    race: pick(races),
+    class: pick(classes),
+    level: 1,
+    ...stats,
+    background: pick(backgrounds),
+    personality: '',
+    ideal: '',
+    bond: '',
+    flaw: ''
+  };
+}
+
+async function startTableWithRandomCharacter(sessionId) {
+  const { data: character, error: characterError } = await sb.from('characters').insert({
+    ...createRandomCharacter(),
+    profile_id: currentUser.uid,
+  }).select().single();
+  if (characterError) throw characterError;
+
+  currentCharacter = character;
+  localStorage.setItem(CHAR_STORAGE_KEY, character.id);
+  const { error: playerError } = await sb.from('players').update({
+    display_name: character.name,
+    character_id: character.id,
+  }).eq('session_id', sessionId).eq('user_id', currentUser.uid);
+  if (playerError) throw playerError;
+
+  const { data: kickoffData, error: kickoffError } = await sb.functions.invoke('generate-story', {
+    body: { sessionId, userId: currentUser.uid, kickoff: true },
+  });
+  if (kickoffError) throw new Error(await extractFunctionError(kickoffError, kickoffData));
+  await refreshGameState();
+}
+
 $('btn-create-session')?.addEventListener('click', async () => {
   try {
     const { data: newSession, error: sErr } = await sb.from('sessions').insert({
@@ -804,8 +861,7 @@ $('btn-create-session')?.addEventListener('click', async () => {
     currentUser.activeSessionId = newSession.id;
 
     enterGame(newSession.id);
-    pendingTableStartSessionId = newSession.id;
-    $('modal-character-creation')?.showModal();
+    await startTableWithRandomCharacter(newSession.id);
   } catch (err) {
     console.error(err);
     toast('Could not create session: ' + (err.message || err), 4000, 'error');
@@ -838,8 +894,7 @@ async function joinSession(sessionId) {
     currentUser.activeSessionId = sessionId;
     
     enterGame(sessionId);
-    pendingTableStartSessionId = sessionId;
-    $('modal-character-creation')?.showModal();
+    await startTableWithRandomCharacter(sessionId);
   } catch (err) {
     console.error(err);
     if (err.message?.includes('players_pkey') || err.code === '23505') {
@@ -1172,7 +1227,7 @@ function renderStoryLog() {
     const impactText = typeof h.impact === 'number'
       ? (h.impact < 0 ? ` — lost ${Math.abs(h.impact)} HP` : h.impact > 0 ? ` — recovered ${h.impact} HP` : ' — unscathed')
       : '';
-    const rollText = h.roll ? ` (${escapeHtml(h.roll)})` : '';
+    const rollText = h.roll ? ` <span class="log-roll">d20: ${escapeHtml(h.roll)}${h.rollLabel ? ` · ${escapeHtml(h.rollLabel)}` : ''}</span>` : '';
     return `<li class="log-item">
       <div class="log-player">${escapeHtml(h.player)}${impactText}${rollText}</div>
       ${h.choice ? `<div class="log-choice">"${escapeHtml(h.choice)}"</div>` : ''}

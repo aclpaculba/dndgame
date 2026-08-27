@@ -39,6 +39,7 @@ export async function requireUser(db: SupabaseClient, userId: string): Promise<v
 
 // ---------------- Randomized outcome roll ----------------
 type RollOutcome = {
+  roll: number;
   impact: number;
   rollLabel: string;
   partyImpact: number;
@@ -51,6 +52,7 @@ function rollOutcome(baseImpact: number): RollOutcome {
   if (roll === 1) {
     const impact = Math.min(-15, Math.round(baseImpact * 1.8) - 8);
     return {
+      roll,
       impact: Math.max(-45, impact),
       rollLabel: 'Critical failure!',
       partyImpact: -6,
@@ -61,6 +63,7 @@ function rollOutcome(baseImpact: number): RollOutcome {
   if (roll === 20) {
     const impact = baseImpact < 0 ? Math.abs(Math.round(baseImpact * 0.5)) + 4 : baseImpact + 8;
     return {
+      roll,
       impact: Math.min(25, impact),
       rollLabel: 'Critical success!',
       partyImpact: 6,
@@ -71,7 +74,7 @@ function rollOutcome(baseImpact: number): RollOutcome {
   const variance = 0.5 + Math.random() * 0.9;
   const impact = Math.round(baseImpact * variance);
   const rollLabel = roll <= 5 ? 'A close call.' : roll >= 16 ? 'Fortune favors them.' : '';
-  return { impact: Math.max(-40, Math.min(20, impact)), rollLabel, partyImpact: 0, partyLabel: null };
+  return { roll, impact: Math.max(-40, Math.min(20, impact)), rollLabel, partyImpact: 0, partyLabel: null };
 }
 
 function describeImpact(name: string, impact: number): string {
@@ -130,11 +133,13 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
   let narrative = String(result.narrative || '');
   let appliedImpact = 0;
   let rollLabel = '';
+  let rollValue: number | null = null;
   let partyLabel: string | null = null;
 
   if (!kickoff) {
     const baseImpact = Math.max(-35, Math.min(15, Math.round(result.healthImpact || 0)));
     const roll = rollOutcome(baseImpact);
+    rollValue = roll.roll;
     appliedImpact = roll.impact;
     rollLabel = roll.rollLabel;
     partyLabel = roll.partyLabel;
@@ -173,7 +178,8 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       choice: (session.story_choices ?? [])[choiceIndex!],
       outcome: String(result.narrative).slice(0, 160),
       impact: appliedImpact,
-      roll: rollLabel || null,
+      roll: rollValue,
+      rollLabel: rollLabel || null,
     },
     ...(partyLabel ? [{ party: true, outcome: partyLabel, impact: null, roll: null }] : []),
   ];

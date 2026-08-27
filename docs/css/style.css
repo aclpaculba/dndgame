@@ -1010,6 +1010,13 @@ body {
   color: var(--text-primary);
 }
 
+.log-roll {
+  color: var(--health-mid);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .log-choice {
   color: var(--text-muted);
   font-style: italic;
