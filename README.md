@@ -99,7 +99,6 @@ Rotate it later by re-running the same command and redeploying the functions.
 ```bash
 supabase functions deploy generate-story
 supabase functions deploy reset-session
-supabase functions deploy master-reset
 supabase functions deploy assign-class
 ```
 

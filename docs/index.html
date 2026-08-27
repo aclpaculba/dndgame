@@ -265,9 +265,7 @@
       </div>
       <div class="topbar-actions">
         <span id="lobby-username" class="user-pill"></span>
-        <button id="lobby-char-stats" class="btn btn-secondary btn-sm">📊 Stats</button>
         <button id="ui-mode-toggle" class="btn btn-ghost btn-sm">✨ Animated</button>
-        <button id="btn-master-reset-open" class="btn btn-ghost btn-sm" style="color: var(--health-low);">⚠️ Reset</button>
         <button id="btn-logout" class="btn btn-ghost btn-sm">Sign out</button>
       </div>
     </header>
@@ -306,7 +304,6 @@
       </div>
       <div class="topbar-actions">
         <span id="game-session-code" class="user-pill"></span>
-        <button id="game-char-stats" class="btn btn-secondary btn-sm">📊 Stats</button>
         <button id="ui-mode-toggle-2" class="btn btn-ghost btn-sm">✨ Animated</button>
         <button id="btn-leave-session" class="btn btn-ghost btn-sm">✕ Leave</button>
       </div>
@@ -368,22 +365,6 @@
       </p>
     </div>
   </section>
-
-  <!-- ================= MASTER RESET MODAL (NO PASSWORD) ================= -->
-  <dialog id="modal-reset" class="modal" role="dialog" aria-labelledby="modal-title">
-    <div class="modal-card glass-card">
-      <h3 id="modal-title">⚠️ Master Reset</h3>
-      <p class="text-secondary" style="margin-bottom: var(--space-md);">
-        This wipes the current session — all players, health, story, and turn order.
-        Are you sure you want to continue?
-      </p>
-      <p class="form-error" id="reset-error" role="alert"></p>
-      <div class="modal-actions" style="display: flex; gap: var(--space-sm); margin-top: var(--space-md);">
-        <button id="btn-reset-cancel" class="btn btn-ghost">Cancel</button>
-        <button id="btn-reset-confirm" class="btn btn-danger">Yes, Reset Session</button>
-      </div>
-    </div>
-  </dialog>
 
   <!-- ================= TOAST ================= -->
   <div id="toast" class="toast hidden" role="alert"></div>
