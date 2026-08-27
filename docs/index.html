@@ -1,105 +1,160 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Last Ember — A Turn-Based Survival Tale</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Last Ember — Modern Survival Tale</title>
+  
+  <!-- Preconnect for performance -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  
+  <link rel="stylesheet" href="css/style.css" />
 </head>
-<body class="theme-simple">
+<body>
 
   <!-- ================= NAME ENTRY SCREEN ================= -->
-  <section id="screen-auth" class="screen active">
-    <div class="auth-card">
+  <section id="screen-auth" class="screen active" role="main" aria-label="Login screen">
+    <div class="auth-card glass-card">
       <div class="brand">
-        <span class="brand-mark">✦</span>
-        <h1>Last Ember</h1>
+        <span class="brand-icon">🔥</span>
+        <h1>Last <span class="text-gradient">Ember</span></h1>
         <p class="brand-sub">A turn-based tale of survival</p>
       </div>
 
-      <form id="form-name" class="auth-form active">
-        <label>Your name
-          <input type="text" id="name-input" required maxlength="24" autocomplete="off" placeholder="e.g. Alric" />
+      <form id="form-name" class="auth-form" autocomplete="off">
+        <label for="name-input">
+          Your name
+          <input 
+            type="text" 
+            id="name-input" 
+            class="input-modern"
+            required 
+            maxlength="24" 
+            autocomplete="off" 
+            placeholder="Enter your name..."
+            aria-describedby="name-error"
+          />
         </label>
-        <p class="form-error" id="name-error"></p>
-        <button type="submit" class="btn btn-primary btn-lg">Continue</button>
-        <p class="muted small">No password — type the exact same name again anytime, on any device, to pick up right where you left off.</p>
+        <p class="form-error" id="name-error" role="alert"></p>
+        <button type="submit" class="btn btn-primary btn-lg">
+          <span>Continue</span>
+          <span aria-hidden="true">→</span>
+        </button>
+        <p class="text-muted" style="font-size: 0.8rem; text-align: center; margin-top: var(--space-sm);">
+          No password — type the exact same name on any device to resume.
+        </p>
       </form>
     </div>
   </section>
 
   <!-- ================= LOBBY SCREEN ================= -->
-  <section id="screen-lobby" class="screen">
-    <header class="topbar">
-      <div class="topbar-brand"><span class="brand-mark">✦</span> Last Ember</div>
+  <section id="screen-lobby" class="screen" role="main" aria-label="Lobby">
+    <header class="topbar" role="banner">
+      <div class="topbar-brand">
+        <span class="brand-mark">🔥</span>
+        <span>Last Ember</span>
+      </div>
       <div class="topbar-actions">
         <span id="lobby-username" class="user-pill"></span>
-        <button id="ui-mode-toggle" class="btn btn-ghost" title="Toggle visual style">Animated mode: Off</button>
-        <button id="btn-master-reset-open" class="btn btn-ghost btn-danger-ghost">Master reset</button>
-        <button id="btn-logout" class="btn btn-ghost">Not you?</button>
+        <button id="ui-mode-toggle" class="btn btn-ghost btn-sm" title="Toggle visual style">
+          ✨ Animated
+        </button>
+        <button id="btn-master-reset-open" class="btn btn-ghost btn-sm" style="color: var(--health-low);">
+          ⚠️ Reset
+        </button>
+        <button id="btn-logout" class="btn btn-ghost btn-sm">
+          Sign out
+        </button>
       </div>
     </header>
 
     <main class="lobby-main">
       <div class="lobby-col">
-        <h2>Your table</h2>
-        <p class="muted">Create a new session, or rejoin the one already in progress.</p>
-        <button id="btn-create-session" class="btn btn-primary btn-lg">Create new session</button>
+        <h2>🎯 Your Table</h2>
+        <p class="text-secondary">Create a new session or rejoin one in progress.</p>
+        <button id="btn-create-session" class="btn btn-primary btn-lg" style="width: 100%;">
+          ✦ Create New Session
+        </button>
         <div id="active-session-banner" class="hidden active-session-banner">
-          <p>You have an active session in progress.</p>
-          <button id="btn-resume-session" class="btn btn-secondary">Resume session</button>
+          <span>You have an active session</span>
+          <button id="btn-resume-session" class="btn btn-secondary btn-sm">Resume →</button>
         </div>
       </div>
 
       <div class="lobby-col">
-        <h2>Joinable sessions</h2>
+        <h2>👥 Joinable Tables</h2>
+        <p class="text-secondary">Pick a table to join the adventure.</p>
         <div id="session-list" class="session-list">
-          <p class="muted" id="session-list-empty">No open sessions right now — create one.</p>
+          <p class="text-muted" id="session-list-empty" style="padding: var(--space-lg); text-align: center;">
+            No open sessions — create one above.
+          </p>
         </div>
       </div>
     </main>
   </section>
 
   <!-- ================= GAME SCREEN ================= -->
-  <section id="screen-game" class="screen">
-    <header class="topbar">
-      <div class="topbar-brand"><span class="brand-mark">✦</span> Last Ember</div>
+  <section id="screen-game" class="screen" role="main" aria-label="Game">
+    <header class="topbar" role="banner">
+      <div class="topbar-brand">
+        <span class="brand-mark">🔥</span>
+        <span>Last Ember</span>
+      </div>
       <div class="topbar-actions">
         <span id="game-session-code" class="user-pill"></span>
-        <button id="ui-mode-toggle-2" class="btn btn-ghost">Animated mode: Off</button>
-        <button id="btn-leave-session" class="btn btn-ghost">Leave to lobby</button>
+        <button id="ui-mode-toggle-2" class="btn btn-ghost btn-sm">
+          ✨ Animated
+        </button>
+        <button id="btn-leave-session" class="btn btn-ghost btn-sm">
+          ✕ Leave
+        </button>
       </div>
     </header>
 
     <main class="game-main">
-      <aside class="player-panel">
+      <!-- Player Panel -->
+      <aside class="player-panel" aria-label="Players">
         <h3>Players</h3>
-        <ul id="player-list" class="player-list"></ul>
-        <div class="turn-indicator" id="turn-indicator">Waiting for players…</div>
+        <ul id="player-list" class="player-list" role="list"></ul>
+        <div class="turn-indicator" id="turn-indicator" role="status">
+          Waiting for players…
+        </div>
       </aside>
 
-      <div class="story-panel">
-        <div class="story-glow"></div>
-        <div class="story-text" id="story-text">The fire has not yet been lit…</div>
+      <!-- Story Panel -->
+      <div class="story-panel" role="main">
+        <div id="story-text" class="story-text" role="article" aria-live="polite">
+          The fire has not yet been lit…
+        </div>
 
-        <div class="choices" id="choices"></div>
+        <div id="choices" class="choices" role="group" aria-label="Story choices"></div>
 
-        <p class="story-status" id="story-status"></p>
+        <p id="story-status" class="story-status" role="status"></p>
       </div>
 
-      <aside class="activity-panel">
+      <!-- Activity Panel -->
+      <aside class="activity-panel" aria-label="Activity">
         <div class="activity-section">
-          <h3>Story log</h3>
-          <ul id="story-log" class="story-log"></ul>
+          <h3>📜 Story Log</h3>
+          <ul id="story-log" class="story-log" role="list"></ul>
         </div>
+
         <div class="activity-section chat-section">
-          <h3>Table chat</h3>
-          <div id="chat-messages" class="chat-messages"></div>
-          <form id="form-chat" class="chat-form">
-            <input type="text" id="chat-input" maxlength="500" autocomplete="off" placeholder="Say something…" />
-            <button type="submit" class="btn btn-secondary">Send</button>
+          <h3>💬 Table Chat</h3>
+          <div id="chat-messages" class="chat-messages" role="log" aria-live="polite"></div>
+          <form id="form-chat" class="chat-form" autocomplete="off">
+            <input 
+              type="text" 
+              id="chat-input" 
+              class="input-modern" 
+              maxlength="500" 
+              autocomplete="off" 
+              placeholder="Say something…"
+              aria-label="Chat message"
+            />
+            <button type="submit" class="btn btn-secondary btn-sm">Send</button>
           </form>
         </div>
       </aside>
@@ -107,37 +162,50 @@
   </section>
 
   <!-- ================= END SCREEN ================= -->
-  <section id="screen-end" class="screen">
-    <div class="end-card">
-      <span class="brand-mark">✦</span>
+  <section id="screen-end" class="screen" role="main" aria-label="Game over">
+    <div class="end-card glass-card">
+      <span style="font-size: 3rem; display: block; margin-bottom: var(--space-sm);">🏆</span>
       <h1 id="end-title">The tale is told</h1>
       <p id="end-summary" class="end-summary"></p>
       <div class="end-actions">
-        <button id="btn-back-to-lobby" class="btn btn-primary">Return to lobby</button>
+        <button id="btn-back-to-lobby" class="btn btn-primary">
+          Return to Lobby
+        </button>
       </div>
-      <p class="muted small">This table has reset itself — health and story cleared for the next telling.</p>
+      <p class="text-muted" style="font-size: 0.8rem; margin-top: var(--space-md);">
+        This table has reset — ready for the next tale.
+      </p>
     </div>
   </section>
 
   <!-- ================= MASTER RESET MODAL ================= -->
-  <div id="modal-reset" class="modal hidden">
-    <div class="modal-card">
-      <h3>Master reset</h3>
-      <p class="muted">This wipes the current session back to zero — every player's health, the story, and the turn order. Enter the master password to confirm.</p>
-      <input type="password" id="reset-password" placeholder="Master password" />
-      <p class="form-error" id="reset-error"></p>
+  <dialog id="modal-reset" class="modal" role="dialog" aria-labelledby="modal-title">
+    <div class="modal-card glass-card">
+      <h3 id="modal-title">⚠️ Master Reset</h3>
+      <p class="text-secondary" style="margin-bottom: var(--space-md);">
+        This wipes the current session — all health, story, and turn order.
+        Enter the master password to confirm.
+      </p>
+      <input 
+        type="password" 
+        id="reset-password" 
+        class="input-modern" 
+        placeholder="Master password"
+        aria-label="Master password"
+      />
+      <p class="form-error" id="reset-error" role="alert"></p>
       <div class="modal-actions">
         <button id="btn-reset-cancel" class="btn btn-ghost">Cancel</button>
-        <button id="btn-reset-confirm" class="btn btn-danger">Reset session</button>
+        <button id="btn-reset-confirm" class="btn btn-danger">Reset Session</button>
       </div>
     </div>
-  </div>
+  </dialog>
 
-  <div id="toast" class="toast hidden"></div>
+  <!-- ================= TOAST ================= -->
+  <div id="toast" class="toast hidden" role="alert"></div>
 
-  <!-- Supabase JS SDK (free tier: Postgres + Realtime + Edge Functions) -->
+  <!-- ================= SCRIPTS ================= -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-
   <script src="js/supabase-config.js"></script>
   <script src="js/app.js"></script>
 </body>
