@@ -1,10 +1,6 @@
 import { corsHeaders } from '../_shared/cors.ts';
 import { adminClient, requireUser } from '../_shared/game.ts';
 
-declare const Deno: {
-  serve: (handler: (req: Request) => Promise<Response> | Response) => void;
-};
-
 Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -49,7 +45,6 @@ Deno.serve(async (req) => {
     
     if (deleteMessagesError) {
       console.error('Failed to delete messages:', deleteMessagesError);
-      // Don't throw - messages are non-critical
     } else {
       console.log(`✅ Deleted messages for session: ${sessionId}`);
     }
@@ -86,7 +81,6 @@ Deno.serve(async (req) => {
     
     if (clearProfilesError) {
       console.error('Failed to clear profiles:', clearProfilesError);
-      // Don't throw - this is cleanup
     } else {
       console.log(`✅ Cleared active_session_id from profiles for session: ${sessionId}`);
     }
@@ -103,7 +97,7 @@ Deno.serve(async (req) => {
   } catch (err) {
     console.error('Master reset error:', err);
     return new Response(JSON.stringify({ 
-      error: err instanceof Error ? err.message : String(err)
+      error: String(err.message || err) 
     }), {
       status: 400,
       headers: { ...corsHeaders, 'content-type': 'application/json' },
