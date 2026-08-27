@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Last Ember — Modern Survival Tale</title>
+  <title>Last Ember — Character-Driven Survival</title>
   
-  <!-- Preconnect for performance -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -14,13 +13,13 @@
 </head>
 <body>
 
-  <!-- ================= NAME ENTRY SCREEN ================= -->
+  <!-- ================= AUTH SCREEN ================= -->
   <section id="screen-auth" class="screen active" role="main" aria-label="Login screen">
     <div class="auth-card glass-card">
       <div class="brand">
         <span class="brand-icon">🔥</span>
         <h1>Last <span class="text-gradient">Ember</span></h1>
-        <p class="brand-sub">A turn-based tale of survival</p>
+        <p class="brand-sub">A character-driven tale of survival</p>
       </div>
 
       <form id="form-name" class="auth-form" autocomplete="off">
@@ -42,11 +41,216 @@
           <span>Continue</span>
           <span aria-hidden="true">→</span>
         </button>
-        <p class="text-muted" style="font-size: 0.8rem; text-align: center; margin-top: var(--space-sm);">
-          No password — type the exact same name on any device to resume.
-        </p>
       </form>
     </div>
+  </section>
+
+  <!-- ================= CHARACTER CREATION SCREEN ================= -->
+  <section id="screen-characters" class="screen" role="main" aria-label="Character selection">
+    <header class="topbar" role="banner">
+      <div class="topbar-brand">
+        <span class="brand-mark">🔥</span>
+        <span>Last Ember</span>
+      </div>
+      <div class="topbar-actions">
+        <span id="char-username" class="user-pill"></span>
+        <button id="btn-char-logout" class="btn btn-ghost btn-sm">Sign out</button>
+      </div>
+    </header>
+
+    <main class="char-main">
+      <div class="char-container">
+        <div class="char-header">
+          <h2>⚔️ Your Characters</h2>
+          <p class="text-secondary">Select a character or create a new one for your adventure.</p>
+        </div>
+
+        <!-- Character List -->
+        <div id="character-list" class="character-list">
+          <p class="text-muted" style="padding: var(--space-lg); text-align: center;">
+            No characters yet. Create your first one!
+          </p>
+        </div>
+
+        <!-- Create Character Button -->
+        <button id="btn-create-character" class="btn btn-primary btn-lg" style="width: 100%; margin-top: var(--space-md);">
+          ✦ Create New Character
+        </button>
+      </div>
+
+      <!-- Character Creation Modal -->
+      <dialog id="modal-character-creation" class="modal" role="dialog" aria-labelledby="creation-title">
+        <div class="modal-card glass-card" style="max-width: 600px; max-height: 90vh; overflow-y: auto;">
+          <h3 id="creation-title">⚔️ Create Your Character</h3>
+          
+          <form id="form-character-creation" class="char-creation-form">
+            <!-- Step 1: Basic Info -->
+            <div id="char-step-1" class="char-step active">
+              <label>
+                Character Name
+                <input type="text" id="char-name" class="input-modern" required maxlength="24" placeholder="e.g., Sir Alric" />
+              </label>
+              <label>
+                Race
+                <select id="char-race" class="input-modern">
+                  <option value="human">Human</option>
+                  <option value="elf">Elf</option>
+                  <option value="dwarf">Dwarf</option>
+                  <option value="halfling">Halfling</option>
+                  <option value="gnome">Gnome</option>
+                  <option value="half-elf">Half-Elf</option>
+                  <option value="half-orc">Half-Orc</option>
+                </select>
+              </label>
+              <label>
+                Class
+                <select id="char-class" class="input-modern">
+                  <option value="fighter">Fighter</option>
+                  <option value="rogue">Rogue</option>
+                  <option value="cleric">Cleric</option>
+                  <option value="wizard">Wizard</option>
+                  <option value="ranger">Ranger</option>
+                  <option value="paladin">Paladin</option>
+                  <option value="bard">Bard</option>
+                  <option value="druid">Druid</option>
+                </select>
+              </label>
+              <button type="button" class="btn btn-primary" onclick="showCharStep(2)">Next →</button>
+            </div>
+
+            <!-- Step 2: Stats (Point Buy) -->
+            <div id="char-step-2" class="char-step">
+              <h4 style="margin-bottom: var(--space-md);">Assign Your Stats (27 Points)</h4>
+              <p class="text-secondary" style="font-size: 0.9rem; margin-bottom: var(--space-md);">
+                Points remaining: <span id="stat-points-remaining">27</span>
+              </p>
+              
+              <div class="stat-row">
+                <label>Strength (STR)</label>
+                <div class="stat-control">
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="strength" data-dir="-1">-</button>
+                  <span id="stat-strength" class="stat-value">8</span>
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="strength" data-dir="1">+</button>
+                  <span class="stat-modifier" id="mod-strength">-1</span>
+                </div>
+              </div>
+              
+              <div class="stat-row">
+                <label>Dexterity (DEX)</label>
+                <div class="stat-control">
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="dexterity" data-dir="-1">-</button>
+                  <span id="stat-dexterity" class="stat-value">8</span>
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="dexterity" data-dir="1">+</button>
+                  <span class="stat-modifier" id="mod-dexterity">-1</span>
+                </div>
+              </div>
+              
+              <div class="stat-row">
+                <label>Constitution (CON)</label>
+                <div class="stat-control">
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="constitution" data-dir="-1">-</button>
+                  <span id="stat-constitution" class="stat-value">8</span>
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="constitution" data-dir="1">+</button>
+                  <span class="stat-modifier" id="mod-constitution">-1</span>
+                </div>
+              </div>
+              
+              <div class="stat-row">
+                <label>Intelligence (INT)</label>
+                <div class="stat-control">
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="intelligence" data-dir="-1">-</button>
+                  <span id="stat-intelligence" class="stat-value">8</span>
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="intelligence" data-dir="1">+</button>
+                  <span class="stat-modifier" id="mod-intelligence">-1</span>
+                </div>
+              </div>
+              
+              <div class="stat-row">
+                <label>Wisdom (WIS)</label>
+                <div class="stat-control">
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="wisdom" data-dir="-1">-</button>
+                  <span id="stat-wisdom" class="stat-value">8</span>
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="wisdom" data-dir="1">+</button>
+                  <span class="stat-modifier" id="mod-wisdom">-1</span>
+                </div>
+              </div>
+              
+              <div class="stat-row">
+                <label>Charisma (CHA)</label>
+                <div class="stat-control">
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="charisma" data-dir="-1">-</button>
+                  <span id="stat-charisma" class="stat-value">8</span>
+                  <button type="button" class="btn btn-sm btn-secondary" data-stat="charisma" data-dir="1">+</button>
+                  <span class="stat-modifier" id="mod-charisma">-1</span>
+                </div>
+              </div>
+              
+              <div style="display: flex; gap: var(--space-sm); margin-top: var(--space-lg);">
+                <button type="button" class="btn btn-secondary" onclick="showCharStep(1)">← Back</button>
+                <button type="button" class="btn btn-primary" onclick="showCharStep(3)">Next →</button>
+              </div>
+            </div>
+
+            <!-- Step 3: Background & Personality -->
+            <div id="char-step-3" class="char-step">
+              <h4 style="margin-bottom: var(--space-md);">Character Background</h4>
+              
+              <label>
+                Background
+                <select id="char-background" class="input-modern">
+                  <option value="noble">Noble</option>
+                  <option value="soldier">Soldier</option>
+                  <option value="urchin">Urchin</option>
+                  <option value="sage">Sage</option>
+                  <option value="criminal">Criminal</option>
+                  <option value="folk-hero">Folk Hero</option>
+                  <option value="acolyte">Acolyte</option>
+                </select>
+              </label>
+              
+              <label>
+                Personality Trait
+                <input type="text" id="char-personality" class="input-modern" placeholder="e.g., I'm always calm in a crisis" />
+              </label>
+              
+              <label>
+                Ideal
+                <input type="text" id="char-ideal" class="input-modern" placeholder="e.g., Greater good is worth the sacrifice" />
+              </label>
+              
+              <label>
+                Bond
+                <input type="text" id="char-bond" class="input-modern" placeholder="e.g., I must protect my homeland" />
+              </label>
+              
+              <label>
+                Flaw
+                <input type="text" id="char-flaw" class="input-modern" placeholder="e.g., I'm too trusting of strangers" />
+              </label>
+              
+              <div style="display: flex; gap: var(--space-sm); margin-top: var(--space-lg);">
+                <button type="button" class="btn btn-secondary" onclick="showCharStep(2)">← Back</button>
+                <button type="submit" class="btn btn-primary">✨ Create Character</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </dialog>
+
+      <!-- Character Stats Modal -->
+      <dialog id="modal-character-stats" class="modal" role="dialog" aria-labelledby="stats-title">
+        <div class="modal-card glass-card" style="max-width: 500px;">
+          <div style="display: flex; justify-content: space-between; align-items: start;">
+            <h3 id="stats-title">📊 Character Sheet</h3>
+            <button id="btn-stats-close" class="btn btn-ghost" style="font-size: 1.5rem;">×</button>
+          </div>
+          
+          <div id="stats-content">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </dialog>
+    </main>
   </section>
 
   <!-- ================= LOBBY SCREEN ================= -->
@@ -58,15 +262,10 @@
       </div>
       <div class="topbar-actions">
         <span id="lobby-username" class="user-pill"></span>
-        <button id="ui-mode-toggle" class="btn btn-ghost btn-sm" title="Toggle visual style">
-          ✨ Animated
-        </button>
-        <button id="btn-master-reset-open" class="btn btn-ghost btn-sm" style="color: var(--health-low);">
-          ⚠️ Reset
-        </button>
-        <button id="btn-logout" class="btn btn-ghost btn-sm">
-          Sign out
-        </button>
+        <button id="lobby-char-stats" class="btn btn-secondary btn-sm">📊 Stats</button>
+        <button id="ui-mode-toggle" class="btn btn-ghost btn-sm">✨ Animated</button>
+        <button id="btn-master-reset-open" class="btn btn-ghost btn-sm" style="color: var(--health-low);">⚠️ Reset</button>
+        <button id="btn-logout" class="btn btn-ghost btn-sm">Sign out</button>
       </div>
     </header>
 
@@ -104,17 +303,13 @@
       </div>
       <div class="topbar-actions">
         <span id="game-session-code" class="user-pill"></span>
-        <button id="ui-mode-toggle-2" class="btn btn-ghost btn-sm">
-          ✨ Animated
-        </button>
-        <button id="btn-leave-session" class="btn btn-ghost btn-sm">
-          ✕ Leave
-        </button>
+        <button id="game-char-stats" class="btn btn-secondary btn-sm">📊 Stats</button>
+        <button id="ui-mode-toggle-2" class="btn btn-ghost btn-sm">✨ Animated</button>
+        <button id="btn-leave-session" class="btn btn-ghost btn-sm">✕ Leave</button>
       </div>
     </header>
 
     <main class="game-main">
-      <!-- Player Panel -->
       <aside class="player-panel" aria-label="Players">
         <h3>Players</h3>
         <ul id="player-list" class="player-list" role="list"></ul>
@@ -123,24 +318,19 @@
         </div>
       </aside>
 
-      <!-- Story Panel -->
       <div class="story-panel" role="main">
         <div id="story-text" class="story-text" role="article" aria-live="polite">
           The fire has not yet been lit…
         </div>
-
         <div id="choices" class="choices" role="group" aria-label="Story choices"></div>
-
         <p id="story-status" class="story-status" role="status"></p>
       </div>
 
-      <!-- Activity Panel -->
       <aside class="activity-panel" aria-label="Activity">
         <div class="activity-section">
           <h3>📜 Story Log</h3>
           <ul id="story-log" class="story-log" role="list"></ul>
         </div>
-
         <div class="activity-section chat-section">
           <h3>💬 Table Chat</h3>
           <div id="chat-messages" class="chat-messages" role="log" aria-live="polite"></div>
@@ -168,9 +358,7 @@
       <h1 id="end-title">The tale is told</h1>
       <p id="end-summary" class="end-summary"></p>
       <div class="end-actions">
-        <button id="btn-back-to-lobby" class="btn btn-primary">
-          Return to Lobby
-        </button>
+        <button id="btn-back-to-lobby" class="btn btn-primary">Return to Lobby</button>
       </div>
       <p class="text-muted" style="font-size: 0.8rem; margin-top: var(--space-md);">
         This table has reset — ready for the next tale.
