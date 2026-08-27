@@ -1089,6 +1089,14 @@ body {
   border: none;
 }
 
+.modal:not([open]) {
+  display: none;
+}
+
+.modal[open] {
+  display: flex;
+}
+
 .modal-card {
   max-width: 400px;
   width: 100%;

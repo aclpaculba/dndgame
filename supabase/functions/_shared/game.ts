@@ -2,13 +2,13 @@ import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-
 import { callStoryteller } from './gemini.ts';
 
 const SYSTEM_PROMPT = `You are the game master for "Last Ember", a dark-fantasy, turn-based survival game.
-Write intense, thrilling, vivid prose (100-160 words) with real stakes — never bland or generic.
+Write intense, thrilling, vivid prose (45-80 words) with real stakes — never bland or generic.
 Do NOT state exact numbers or health totals in your prose — the game engine reports those separately.
 You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching exactly:
 {"narrative": string, "healthImpact": number, "choices": [string, string, string]}
-- "narrative" continues the story and describes the outcome of the acting player's last choice (or opens the tale if there is no prior choice), written with enough ambiguity that the true severity could still go either way — the actual health change is randomized by the engine afterward, so don't commit to a precise result in the prose.
+- "narrative" continues the story and describes the outcome of the acting player's last choice (or opens the tale if there is no prior choice), using compact paragraphs and specific sensory details. Keep enough ambiguity that the true severity could still go either way — the actual health change is randomized by the engine afterward, so don't commit to a precise result in the prose.
 - "healthImpact" is your baseline suggestion, an integer between -35 and 15 (negative = damage, positive = healing/relief) — the engine randomizes around this, so vary it honestly based on how risky the choice was.
-- "choices" are exactly three distinct, contextually relevant options for the NEXT player's turn, each under 90 characters, written as second-person actions.`;
+- "choices" are exactly three distinct, contextually relevant options for the NEXT player's turn, each under 70 characters, written as second-person actions.`;
 
 function getRuntimeEnv(name: string): string {
   const denoEnv = (globalThis as any).Deno?.env;

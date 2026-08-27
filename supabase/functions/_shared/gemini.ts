@@ -13,7 +13,7 @@ export async function callStoryteller(apiKey: string, systemPrompt: string, user
       generationConfig: {
         responseMimeType: 'application/json',
         temperature: 1,
-        maxOutputTokens: 1400,
+        maxOutputTokens: 900,
       },
     }),
   });

@@ -72,6 +72,7 @@ let latestPlayers = [];
 let latestSession = null;
 let characters = [];
 let autoResetTimer = null;
+let pendingTableStartSessionId = null;
 
 const STORAGE_KEY = 'lastEmberUser';
 const CHAR_STORAGE_KEY = 'lastEmberCharacter';
@@ -523,7 +524,7 @@ $('form-name')?.addEventListener('submit', async (e) => {
     if (error) throw error;
     setCurrentUserFromProfile(profile);
     sounds.playClick();
-    enterCharacterSelection();
+    enterLobby();
   } catch (err) {
     console.error(err);
     if (errEl) errEl.textContent = err.message || 'Could not continue — try again.';
@@ -568,7 +569,7 @@ async function tryResumeFromStorage() {
     }
   }
   
-  enterCharacterSelection();
+  enterLobby();
 }
 
 $('btn-char-logout')?.addEventListener('click', () => {
@@ -590,6 +591,8 @@ $('btn-create-character')?.addEventListener('click', () => {
   // Clear form fields
   const nameInput = $('char-name');
   if (nameInput) nameInput.value = '';
+  const questionInput = $('char-question');
+  if (questionInput) questionInput.value = '';
   
   // Show step 1
   showCharStep(1);
@@ -617,8 +620,13 @@ $('form-character-creation')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   
   const name = $('char-name')?.value.trim();
+  const answer = $('char-question')?.value.trim();
   if (!name) {
     toast('Please enter a character name.', 2000, 'error');
+    return;
+  }
+  if (!answer) {
+    toast('Answer the storyteller question first.', 2000, 'error');
     return;
   }
   
@@ -629,10 +637,18 @@ $('form-character-creation')?.addEventListener('submit', async (e) => {
     return;
   }
   
+  const classResponse = await sb.functions.invoke('assign-class', {
+    body: { userId: currentUser.uid, answer },
+  });
+  if (classResponse.error) {
+    toast('The storyteller could not choose a class. Please try again.', 3000, 'error');
+    return;
+  }
+
   const charData = {
     name,
     race: $('char-race')?.value || 'Human',
-    class: $('char-class')?.value || 'Fighter',
+    class: classResponse.data?.class || 'Fighter',
     level: 1,
     strength: currentCharStats.strength,
     dexterity: currentCharStats.dexterity,
@@ -647,7 +663,22 @@ $('form-character-creation')?.addEventListener('submit', async (e) => {
     flaw: $('char-flaw')?.value || ''
   };
   
-  await saveCharacter(charData);
+  const savedCharacter = await saveCharacter(charData);
+  if (!savedCharacter || !pendingTableStartSessionId) return;
+
+  currentCharacter = savedCharacter;
+  localStorage.setItem(CHAR_STORAGE_KEY, savedCharacter.id);
+  await sb.from('players').update({
+    display_name: savedCharacter.name,
+    character_id: savedCharacter.id,
+  }).eq('session_id', pendingTableStartSessionId).eq('user_id', currentUser.uid);
+
+  const sessionId = pendingTableStartSessionId;
+  pendingTableStartSessionId = null;
+  await sb.functions.invoke('generate-story', {
+    body: { sessionId, userId: currentUser.uid, kickoff: true },
+  });
+  await refreshGameState();
 });
 
 // ---------- UI Mode Toggle ----------
@@ -711,11 +742,6 @@ async function refreshLobbyList() {
   
   list.querySelectorAll('[data-join]').forEach(b => {
     b.addEventListener('click', () => {
-      if (!currentCharacter) {
-        toast('Please select a character first.', 3000, 'error');
-        enterCharacterSelection();
-        return;
-      }
       sounds.playClick();
       joinSession(b.dataset.join);
     });
@@ -723,11 +749,6 @@ async function refreshLobbyList() {
 }
 
 function enterLobby() {
-  if (!currentCharacter) {
-    enterCharacterSelection();
-    return;
-  }
-  
   showScreen('screen-lobby');
   const banner = $('active-session-banner');
   if (banner) banner.classList.toggle('hidden', !currentUser.activeSessionId);
@@ -760,16 +781,10 @@ function enterLobby() {
 
 // ---------- Session Management ----------
 $('btn-create-session')?.addEventListener('click', async () => {
-  if (!currentCharacter) {
-    toast('Please select a character first.', 3000, 'error');
-    enterCharacterSelection();
-    return;
-  }
-  
   try {
     const { data: newSession, error: sErr } = await sb.from('sessions').insert({
       creator_id: currentUser.uid,
-      creator_name: currentCharacter.name,
+      creator_name: currentUser.username,
       turn_order: [currentUser.uid],
     }).select().single();
     if (sErr) throw sErr;
@@ -777,9 +792,8 @@ $('btn-create-session')?.addEventListener('click', async () => {
     const { error: pErr } = await sb.from('players').insert({
       session_id: newSession.id,
       user_id: currentUser.uid,
-      display_name: currentCharacter.name,
+      display_name: currentUser.username,
       position_in_turn_order: 0,
-      character_id: currentCharacter.id,
     });
     if (pErr) throw pErr;
 
@@ -787,15 +801,8 @@ $('btn-create-session')?.addEventListener('click', async () => {
     currentUser.activeSessionId = newSession.id;
 
     enterGame(newSession.id);
-    toast(`🔥 ${currentCharacter.name} enters the tale!`, 2500, 'success');
-
-    const { error: fnErr } = await sb.functions.invoke('generate-story', {
-      body: { sessionId: newSession.id, userId: currentUser.uid, kickoff: true },
-    });
-    if (fnErr) {
-      console.error('Kickoff failed:', fnErr);
-      toast('Opening scene failed — use "Start the tale" to retry.', 4000, 'error');
-    }
+    pendingTableStartSessionId = newSession.id;
+    $('modal-character-creation')?.showModal();
   } catch (err) {
     console.error(err);
     toast('Could not create session: ' + (err.message || err), 4000, 'error');
@@ -803,12 +810,6 @@ $('btn-create-session')?.addEventListener('click', async () => {
 });
 
 async function joinSession(sessionId) {
-  if (!currentCharacter) {
-    toast('Please select a character first.', 3000, 'error');
-    enterCharacterSelection();
-    return;
-  }
-  
   try {
     const { data: existing } = await sb.from('players').select('user_id')
       .eq('session_id', sessionId).eq('user_id', currentUser.uid).maybeSingle();
@@ -824,9 +825,8 @@ async function joinSession(sessionId) {
     const { error: pErr } = await sb.from('players').insert({
       session_id: sessionId,
       user_id: currentUser.uid,
-      display_name: currentCharacter.name,
+      display_name: currentUser.username,
       position_in_turn_order: order.length,
-      character_id: currentCharacter.id,
     });
     if (pErr) throw pErr;
 
@@ -835,7 +835,8 @@ async function joinSession(sessionId) {
     currentUser.activeSessionId = sessionId;
     
     enterGame(sessionId);
-    toast(`🎲 ${currentCharacter.name} joins the table!`, 2000, 'success');
+    pendingTableStartSessionId = sessionId;
+    $('modal-character-creation')?.showModal();
   } catch (err) {
     console.error(err);
     if (err.message?.includes('players_pkey') || err.code === '23505') {

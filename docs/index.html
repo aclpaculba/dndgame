@@ -92,6 +92,10 @@
             <input type="text" id="char-name" class="input-modern" required maxlength="24" placeholder="e.g., Sir Alric" />
           </label>
           <label>
+            What do you do when danger finds you?
+            <textarea id="char-question" class="input-modern" required maxlength="500" rows="3" placeholder="Tell the storyteller how your hero reacts..."></textarea>
+          </label>
+          <label>
             Race
             <select id="char-race" class="input-modern">
               <option value="Human">Human</option>
@@ -104,8 +108,8 @@
             </select>
           </label>
           <label>
-            Class
-            <select id="char-class" class="input-modern">
+            Class (chosen by the storyteller)
+            <select id="char-class" class="input-modern" disabled>
               <option value="Fighter">⚔️ Fighter</option>
               <option value="Rogue">🗡️ Rogue</option>
               <option value="Cleric">✨ Cleric</option>
