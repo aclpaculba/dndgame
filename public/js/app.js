@@ -620,48 +620,32 @@ document.addEventListener('click', (e) => {
 $('form-character-creation')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   
-  const name = $('char-name')?.value.trim();
-  const answer = $('char-question')?.value.trim();
-  if (!name) {
-    toast('Please enter a character name.', 2000, 'error');
-    return;
-  }
-  if (!answer) {
-    toast('Answer the storyteller question first.', 2000, 'error');
-    return;
-  }
-  
-  // Check if stats are valid
-  if (!statIsValid(currentCharStats)) {
-    toast('Please assign your stats properly (27 points, 8-15 each).', 3000, 'error');
-    showCharStep(2);
-    return;
-  }
-  
   const classResponse = await sb.functions.invoke('assign-class', {
-    body: { userId: currentUser.uid, answer },
+    body: { userId: currentUser.uid },
   });
   if (classResponse.error) {
-    toast('The storyteller could not choose a class. Please try again.', 3000, 'error');
+    toast('The storyteller could not choose a hero. Please try again.', 3000, 'error');
     return;
   }
 
+  const generated = classResponse.data?.character;
+  const generatedStats = generated?.stats || {};
   const charData = {
-    name,
-    race: $('char-race')?.value || 'Human',
-    class: classResponse.data?.class || 'Fighter',
+    name: generated?.name || 'The Nameless Ember',
+    race: generated?.race || 'Human',
+    class: generated?.class || 'Fighter',
     level: 1,
-    strength: currentCharStats.strength,
-    dexterity: currentCharStats.dexterity,
-    constitution: currentCharStats.constitution,
-    intelligence: currentCharStats.intelligence,
-    wisdom: currentCharStats.wisdom,
-    charisma: currentCharStats.charisma,
-    background: $('char-background')?.value || '',
-    personality: $('char-personality')?.value || '',
-    ideal: $('char-ideal')?.value || '',
-    bond: $('char-bond')?.value || '',
-    flaw: $('char-flaw')?.value || ''
+    strength: generatedStats.strength || 8,
+    dexterity: generatedStats.dexterity || 8,
+    constitution: generatedStats.constitution || 8,
+    intelligence: generatedStats.intelligence || 8,
+    wisdom: generatedStats.wisdom || 8,
+    charisma: generatedStats.charisma || 8,
+    background: generated?.background || '',
+    personality: generated?.personality || '',
+    ideal: generated?.ideal || '',
+    bond: generated?.bond || '',
+    flaw: generated?.flaw || ''
   };
   
   const savedCharacter = await saveCharacter(charData);

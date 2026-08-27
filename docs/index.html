@@ -89,15 +89,11 @@
         <div id="char-step-1" class="char-step active">
           <label>
             Character Name
-            <input type="text" id="char-name" class="input-modern" required maxlength="24" placeholder="e.g., Sir Alric" />
-          </label>
-          <label>
-            What do you do when danger finds you?
-            <textarea id="char-question" class="input-modern" required maxlength="500" rows="3" placeholder="Tell the storyteller how your hero reacts..."></textarea>
+            <input type="text" id="char-name" class="input-modern" maxlength="24" placeholder="Chosen by the storyteller" disabled />
           </label>
           <label>
             Race
-            <select id="char-race" class="input-modern">
+            <select id="char-race" class="input-modern" disabled>
               <option value="Human">Human</option>
               <option value="Elf">Elf</option>
               <option value="Dwarf">Dwarf</option>
@@ -120,7 +116,7 @@
               <option value="Druid">🌿 Druid</option>
             </select>
           </label>
-          <button type="button" class="btn btn-primary" onclick="showCharStep(2)">Next →</button>
+          <button type="submit" class="btn btn-primary">✨ Let the storyteller choose</button>
         </div>
 
         <!-- Step 2: Stats -->
