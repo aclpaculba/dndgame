@@ -1,15 +1,17 @@
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.46.0';
 import { callStoryteller } from './storyteller.ts';
 
-const SYSTEM_PROMPT = `You are the game master for "Stackfall", a dark-fantasy, tech-infused, turn-based survival game. The party is fighting a single boss enemy that has its own health bar, shown separately from the players.
+const SYSTEM_PROMPT = `You are the AI Storyteller for "Stackfall: Ashen Edition", a grim, melancholic dark-fantasy survival RPG. The party is fighting a single boss enemy that has its own health bar, shown separately from the players.
 Write intense, thrilling, vivid prose (45-90 words) with real stakes — never bland or generic. Weave in the acting player's race, class, and whichever ability score is most relevant to their action, and reference an inventory item if one fits naturally — but do this through story detail, not by stating numbers.
 Do NOT state exact numbers, health totals, or damage totals in your prose — the game engine reports those separately.
 You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching exactly:
-{"narrative": string, "healthImpact": number, "bossImpact": number, "relevantStat": string, "choices": [string, string, string]}
+{"narrative": string, "healthImpact": number, "bossImpact": number, "relevantStat": string, "soulsGained": number, "choices": [string, string, string]}
 - "narrative" continues the story and describes the outcome of the acting player's last choice (or opens the tale if there is no prior choice). Keep enough ambiguity that the true severity could still go either way — the actual numbers are randomized by the engine afterward, so don't commit to a precise result in the prose.
 - "healthImpact" is your baseline suggestion for the ACTING PLAYER, an integer between -35 and 15 (negative = damage, positive = healing/relief).
 - "bossImpact" is your baseline suggestion for the BOSS, an integer between -30 and 10 (negative = damage dealt to the boss, positive = the boss recovering or gaining ground) — most actions aimed at the boss should deal some damage; actions that don't engage the boss directly can use 0.
 - "relevantStat" is exactly one of: strength, dexterity, constitution, intelligence, wisdom, charisma — whichever ability best explains why this action might succeed or fail.
+- "soulsGained" is an integer from 0 to 5000. Souls are both currency and XP; award them for meaningful victories, not ordinary movement.
+- Death is permanent unless the engine explicitly reports a resurrection. Narrate death with weight and never resolve resurrection or level-up math yourself.
 - "choices" are exactly three distinct, contextually relevant options for the NEXT player's turn, each under 70 characters, written as second-person actions.`;
 
 const ABILITY_KEYS = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'] as const;
@@ -183,6 +185,12 @@ function describeImpact(name: string, impact: number): string {
   if (impact < 0) return `${name} takes ${Math.abs(impact)} damage.`;
   if (impact > 0) return `${name} recovers ${impact} health.`;
   return `${name} comes through unscathed.`;
+}
+
+function statusForHealth(health: number, maxHealth: number): string {
+  if (health <= 0) return 'Dead';
+  const ratio = maxHealth > 0 ? health / maxHealth : 0;
+  return ratio <= 0.25 ? 'Critical' : ratio <= 0.55 ? 'Wounded' : 'Healthy';
 }
 
 function describeBossImpact(bossName: string, impact: number): string {
@@ -443,8 +451,21 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     appliedBossImpact = applyRollToBossImpact(baseBossImpact, roll);
     console.log(`[boss] before=${bossHealth}/${bossMaxHealth} model_bossImpact=${result.bossImpact} baseBossImpact=${baseBossImpact} roll=${roll.roll} isCritFail=${roll.isCritFail} isCritSuccess=${roll.isCritSuccess} appliedBossImpact=${appliedBossImpact}`);
 
-    const newHealth = Math.max(0, Math.min(100, actingPlayer.health + appliedImpact));
+    const maxHealth = Math.max(1, Number(actingPlayer.max_health || 100));
+    const newHealth = Math.max(0, Math.min(maxHealth, actingPlayer.health + appliedImpact));
     const isAlive = newHealth > 0;
+    const soulsGained = Math.max(0, Math.min(5000, Math.floor(Number(result.soulsGained) || 0)));
+    const currentSouls = Math.max(0, Number(actingPlayer.souls || 0));
+    const currentLevel = Math.max(1, Math.min(99, Number(actingPlayer.level || 1)));
+    let nextLevel = currentLevel;
+    let statPoints = Math.max(0, Number(actingPlayer.unallocated_stat_points || 0));
+    let totalSouls = currentSouls + soulsGained;
+    while (nextLevel < 99 && totalSouls >= 100 * nextLevel) {
+      totalSouls -= 100 * nextLevel;
+      nextLevel += 1;
+      statPoints += 3;
+    }
+    const status = statusForHealth(newHealth, maxHealth);
 
     // A good roll can turn up a new item — guaranteed on a critical
     // success, a decent chance otherwise, never on a critical failure.
@@ -458,7 +479,12 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     const currentInventory: any[] = Array.isArray(actingPlayer.inventory) ? actingPlayer.inventory : [];
     const newInventory = lootedItem ? [...currentInventory, lootedItem] : currentInventory;
 
-    const { error: playerUpdateError } = await db.from('players').update({ health: newHealth, is_alive: isAlive, inventory: newInventory })
+    const { error: playerUpdateError } = await db.from('players').update({
+      health: newHealth, is_alive: isAlive, inventory: newInventory, status,
+      souls: totalSouls, level: nextLevel, unallocated_stat_points: statPoints,
+      death_count: !isAlive ? Number(actingPlayer.death_count || 0) + 1 : Number(actingPlayer.death_count || 0),
+      ghost_mode: !isAlive,
+    })
       .eq('session_id', sessionId).eq('user_id', actingUid);
     if (playerUpdateError) {
       console.error('[db] Failed to update acting player:', JSON.stringify(playerUpdateError));
@@ -466,20 +492,21 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     }
 
     updatedPlayers = players.map((p: any) =>
-      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, inventory: newInventory } : p);
+      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, inventory: newInventory, status, souls: totalSouls, level: nextLevel, unallocated_stat_points: statPoints } : p);
 
     if (roll.partyImpact !== 0) {
       const others = updatedPlayers.filter((p: any) => p.user_id !== actingUid && p.is_alive);
       for (const other of others) {
-        const otherHealth = Math.max(0, Math.min(100, other.health + roll.partyImpact));
+        const otherMaxHealth = Math.max(1, Number(other.max_health || 100));
+        const otherHealth = Math.max(0, Math.min(otherMaxHealth, other.health + roll.partyImpact));
         const otherAlive = otherHealth > 0;
-        const { error: otherUpdateError } = await db.from('players').update({ health: otherHealth, is_alive: otherAlive })
+        const { error: otherUpdateError } = await db.from('players').update({ health: otherHealth, is_alive: otherAlive, status: statusForHealth(otherHealth, otherMaxHealth), ghost_mode: !otherAlive })
           .eq('session_id', sessionId).eq('user_id', other.user_id);
         if (otherUpdateError) {
           console.error('[db] Failed to update party-splash player:', JSON.stringify(otherUpdateError));
         }
         updatedPlayers = updatedPlayers.map((p: any) =>
-          p.user_id === other.user_id ? { ...p, health: otherHealth, is_alive: otherAlive } : p);
+          p.user_id === other.user_id ? { ...p, health: otherHealth, is_alive: otherAlive, status: statusForHealth(otherHealth, otherMaxHealth) } : p);
       }
     }
 
@@ -492,6 +519,9 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       describeBossImpact(bossName, appliedBossImpact),
     ];
     if (lootedItem) lines.push(`${actingPlayer.display_name} found a ${lootedItem.name}!`);
+    if (soulsGained > 0) lines.push(`${actingPlayer.display_name} claims ${soulsGained} souls.`);
+    if (nextLevel > currentLevel) lines.push(`${actingPlayer.display_name} reaches Level ${nextLevel} and gains ${statPoints - Number(actingPlayer.unallocated_stat_points || 0)} stat points.`);
+    if (!isAlive) lines.push(`${actingPlayer.display_name} has fallen. The dead pass into Ghost Mode.`);
     if (partyLabel) lines.push(partyLabel);
     narrative = lines.join('\n\n');
     lootedItemName = lootedItem?.name ?? null;

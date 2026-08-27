@@ -2,13 +2,14 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { adminClient, requireUser } from '../_shared/game.ts';
 import { callStoryteller } from '../_shared/storyteller.ts';
 
-const SYSTEM_PROMPT = `Create a surprising random Stackfall fantasy hero.
+const SYSTEM_PROMPT = `Create a surprising random Stackfall: Ashen Edition fantasy hero.
 Respond with ONLY raw JSON in exactly this shape:
 {"name": string, "race": string, "class": string, "stats": {"strength": number, "dexterity": number, "constitution": number, "intelligence": number, "wisdom": number, "charisma": number}, "background": string, "personality": string, "ideal": string, "bond": string, "flaw": string}
 The race must be exactly one of: Human, Elf, Dwarf, Halfling, Gnome, Half-Elf, Half-Orc.
 The class must be exactly one of: Fighter, Rogue, Cleric, Wizard, Ranger, Paladin, Bard, Druid.
-Each stat must be an integer from 8 through 15, and the six stats must use no more than 27 point-buy points.
-Choose all details randomly but make the result coherent and fun.`;
+All six stats start at 10. Apply coherent racial, class, and background bonuses, then return final integer stats from 1 through 20.
+Choose a class starting HP between 6 and 12, represented by the class choice; do not use point-buy rules.
+Choose all details randomly but make the result coherent, grim, and fun for a dark fantasy survival RPG.`;
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -41,13 +42,9 @@ Deno.serve(async (req) => {
     );
     const stats = result.stats || {};
     const statNames = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
-    const validStats = statNames.every((stat) => Number.isInteger(stats[stat]) && stats[stat] >= 8 && stats[stat] <= 15);
-    const pointCost = statNames.reduce((total, stat) => {
-      const value = stats[stat];
-      return total + (value <= 13 ? value - 8 : value === 14 ? 7 : 9);
-    }, 0);
+    const validStats = statNames.every((stat) => Number.isInteger(stats[stat]) && stats[stat] >= 1 && stats[stat] <= 20);
 
-    if (!assignedRace || !assignedClass || !validStats || pointCost > 27) {
+    if (!assignedRace || !assignedClass || !validStats) {
       throw new Error('The storyteller returned an invalid character. Please try again.');
     }
 

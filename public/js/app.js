@@ -166,12 +166,12 @@ function getModifierClass(mod) {
 
 function getDefaultStats() {
   return {
-    strength: 8,
-    dexterity: 8,
-    constitution: 8,
-    intelligence: 8,
-    wisdom: 8,
-    charisma: 8
+    strength: 10,
+    dexterity: 10,
+    constitution: 10,
+    intelligence: 10,
+    wisdom: 10,
+    charisma: 10
   };
 }
 
@@ -187,13 +187,11 @@ function calculatePointBuyCost(stats) {
 }
 
 function getAvailablePoints(stats) {
-  return 27 - calculatePointBuyCost(stats);
+  return 0;
 }
 
 function statIsValid(stats) {
-  const points = getAvailablePoints(stats);
-  const allValid = Object.values(stats).every(v => v >= 8 && v <= 15);
-  return allValid && points >= 0;
+  return Object.values(stats).every(v => v >= 1 && v <= 20);
 }
 
 function getHitPoints(constitution, level = 1) {
@@ -783,29 +781,25 @@ function rollStartingInventory(count = 2) {
 // randomly-picked codename.
 function createRandomCharacter() {
   const stats = getDefaultStats();
-  let remaining = 27;
-  while (remaining > 0) {
-    const available = Object.keys(stats).filter(stat => {
-      if (stats[stat] >= 15) return false;
-      const nextStats = { ...stats, [stat]: stats[stat] + 1 };
-      return calculatePointBuyCost(nextStats) - calculatePointBuyCost(stats) <= remaining;
-    });
-    if (!available.length) break;
-    const stat = available[Math.floor(Math.random() * available.length)];
-    const oldCost = calculatePointBuyCost(stats);
-    stats[stat] += 1;
-    remaining -= calculatePointBuyCost(stats) - oldCost;
-  }
 
   const races = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Gnome', 'Half-Elf', 'Half-Orc'];
   const classes = ['Fighter', 'Rogue', 'Cleric', 'Wizard', 'Ranger', 'Paladin', 'Bard', 'Druid'];
   const backgrounds = ['Noble', 'Soldier', 'Urchin', 'Sage', 'Criminal', 'Folk Hero', 'Acolyte'];
   const pick = values => values[Math.floor(Math.random() * values.length)];
+  const classes = ['Fighter', 'Rogue', 'Cleric', 'Wizard', 'Ranger', 'Paladin', 'Bard', 'Druid'];
+  const chosenClass = pick(classes);
+  const classBonuses = {
+    Fighter: { strength: 2, constitution: 1 }, Rogue: { dexterity: 2, charisma: 1 },
+    Cleric: { wisdom: 2, constitution: 1 }, Wizard: { intelligence: 2, wisdom: 1 },
+    Ranger: { dexterity: 2, wisdom: 1 }, Paladin: { strength: 2, charisma: 1 },
+    Bard: { charisma: 2, dexterity: 1 }, Druid: { wisdom: 2, intelligence: 1 }
+  };
+  for (const [stat, bonus] of Object.entries(classBonuses[chosenClass])) stats[stat] += bonus;
 
   return {
     name: currentUser.username,
     race: pick(races),
-    class: pick(classes),
+    class: chosenClass,
     level: 1,
     ...stats,
     background: pick(backgrounds),
@@ -820,6 +814,8 @@ function createRandomCharacter() {
 async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true } = {}) {
   currentCharacter = createRandomCharacter();
   localStorage.setItem(RANDOM_CHAR_STORAGE_KEY, JSON.stringify(currentCharacter));
+  const classHp = { Fighter: 12, Paladin: 12, Ranger: 10, Cleric: 10, Druid: 10, Rogue: 8, Bard: 8, Wizard: 6 };
+  const maxHealth = classHp[currentCharacter.class] + getStatModifier(currentCharacter.constitution);
   // Write the whole character to the shared players row (not just the
   // name) so every other player at the table can see these stats too —
   // previously this only ever lived in the creating player's own
@@ -835,6 +831,12 @@ async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true 
     wisdom: currentCharacter.wisdom,
     charisma: currentCharacter.charisma,
     inventory: currentCharacter.inventory,
+    max_health: maxHealth,
+    health: maxHealth,
+    status: 'Healthy',
+    level: 1,
+    souls: 0,
+    ghost_mode: false,
   }).eq('session_id', sessionId).eq('user_id', currentUser.uid);
   if (playerError) throw playerError;
 
@@ -1141,7 +1143,8 @@ function renderGame() {
       const isTurn = latestSession.turn_order && 
         latestSession.turn_order[latestSession.current_turn_index] === p.user_id && 
         p.is_alive;
-      const pct = Math.max(0, Math.min(100, p.health));
+      const maxHealth = Math.max(1, Number(p.max_health || 100));
+      const pct = Math.max(0, Math.min(100, (p.health / maxHealth) * 100));
       const color = pct > 55 ? 'var(--health-full)' : pct > 25 ? 'var(--health-mid)' : 'var(--health-low)';
       // Character stats live directly on the player row now (race,
       // class, and the six ability scores), so this works the same
@@ -1163,11 +1166,12 @@ function renderGame() {
         <li class="player-item ${isTurn ? 'current-turn' : ''} ${!p.is_alive ? 'eliminated' : ''}" data-user-id="${p.user_id}">
           <div class="p-name">
             <span>${escapeHtml(characterName)}${p.user_id === currentUser.uid ? ' (you)' : ''}</span>
-            <span class="p-health-num">${p.is_alive ? pct : 'Eliminated'}</span>
+            <span class="p-health-num">${p.is_alive ? `${p.health}/${maxHealth}` : 'Dead'}</span>
           </div>
           <div class="p-health-track">
             <div class="p-health-fill" style="width:${pct}%;background:${color}"></div>
           </div>
+          <div class="session-meta">Level ${p.level || 1} · ${p.souls || 0} souls · ${p.status || (p.is_alive ? 'Healthy' : 'Dead')}</div>
           <button class="player-stats-toggle" type="button" aria-expanded="false">Stats</button>
           <div class="player-stats hidden">${renderPlayerStats(character)}</div>
         </li>
