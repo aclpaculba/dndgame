@@ -377,11 +377,12 @@
         type="password" 
         id="reset-password" 
         class="input-modern" 
-        placeholder="Master password"
+        placeholder="Enter master password"
         aria-label="Master password"
+        autocomplete="off"
       />
       <p class="form-error" id="reset-error" role="alert"></p>
-      <div class="modal-actions">
+      <div class="modal-actions" style="display: flex; gap: var(--space-sm); margin-top: var(--space-md);">
         <button id="btn-reset-cancel" class="btn btn-ghost">Cancel</button>
         <button id="btn-reset-confirm" class="btn btn-danger">Reset Session</button>
       </div>

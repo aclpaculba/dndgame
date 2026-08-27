@@ -734,13 +734,13 @@ function enterLobby() {
 
   refreshLobbyList();
   
-  // ✅ FIX: Remove existing channel first
+  // FIX: Remove existing channel first
   if (lobbyChannel) {
     sb.removeChannel(lobbyChannel);
     lobbyChannel = null;
   }
   
-  // ✅ FIX: Create channel and add ALL listeners BEFORE subscribe
+  // FIX: Create channel and add ALL listeners BEFORE subscribe
   lobbyChannel = sb.channel('lobby-sessions');
   
   // Add all listeners FIRST
@@ -962,8 +962,441 @@ function enterGame(sessionId) {
   refreshGameState();
   refreshChatMessages();
 
-  // ✅ FIX: Remove existing channel first
+  // FIX: Remove existing channel first
   if (gameChannel) {
     sb.removeChannel(gameChannel);
     gameChannel = null;
   }
+  
+  // FIX: Create channel and add ALL listeners BEFORE subscribe
+  gameChannel = sb.channel('game-' + sessionId);
+  
+  // Add all listeners FIRST
+  gameChannel
+    .on('postgres_changes', { 
+      event: '*', 
+      schema: 'public', 
+      table: 'sessions', 
+      filter: `id=eq.${sessionId}` 
+    }, refreshGameState)
+    .on('postgres_changes', { 
+      event: '*', 
+      schema: 'public', 
+      table: 'players', 
+      filter: `session_id=eq.${sessionId}` 
+    }, refreshGameState)
+    .on('postgres_changes', { 
+      event: 'INSERT', 
+      schema: 'public', 
+      table: 'messages', 
+      filter: `session_id=eq.${sessionId}` 
+    }, refreshChatMessages);
+  
+  // THEN subscribe
+  gameChannel.subscribe((status) => {
+    if (status === 'SUBSCRIBED') {
+      console.log('✅ Game channel connected for:', sessionId);
+    } else if (status === 'CHANNEL_ERROR') {
+      console.error('❌ Game channel error for:', sessionId);
+    }
+  });
+}
+
+// ---------- Retry Kickoff ----------
+async function retryKickoff() {
+  const btn = $('btn-start-tale');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Writing…';
+  }
+  
+  const { data, error } = await sb.functions.invoke('generate-story', {
+    body: { sessionId: currentSessionId, userId: currentUser.uid, kickoff: true },
+  });
+  
+  if (error) {
+    console.error('Retry kickoff failed:', error);
+    toast('Still failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🔥 Start the tale';
+    }
+  }
+}
+
+// ---------- Render Game ----------
+function renderGame() {
+  if (!latestSession) return;
+
+  // Player List
+  const list = $('player-list');
+  if (list) {
+    list.innerHTML = latestPlayers.map((p) => {
+      const isTurn = latestSession.turn_order && 
+        latestSession.turn_order[latestSession.current_turn_index] === p.user_id && 
+        p.is_alive;
+      const pct = Math.max(0, Math.min(100, p.health));
+      const color = pct > 55 ? 'var(--health-full)' : pct > 25 ? 'var(--health-mid)' : 'var(--health-low)';
+      
+      return `
+        <li class="player-item ${isTurn ? 'current-turn' : ''} ${!p.is_alive ? 'eliminated' : ''}" data-user-id="${p.user_id}">
+          <div class="p-name">
+            <span>${escapeHtml(p.display_name)}${p.user_id === currentUser.uid ? ' (you)' : ''}</span>
+            <span class="p-health-num">${p.is_alive ? pct : '💀'}</span>
+          </div>
+          <div class="p-health-track">
+            <div class="p-health-fill" style="width:${pct}%;background:${color}"></div>
+          </div>
+        </li>
+      `;
+    }).join('');
+  }
+
+  // Turn Indicator
+  const currentTurnUid = latestSession.turn_order ? latestSession.turn_order[latestSession.current_turn_index] : null;
+  const currentPlayer = latestPlayers.find(p => p.user_id === currentTurnUid);
+  const turnEl = $('turn-indicator');
+  
+  const choices = latestSession.story_choices || [];
+  const isStuck = latestSession.status === 'active' &&
+    !choices.length &&
+    (latestSession.story_narrative || '').trim() === 'The story is being written…';
+
+  if (turnEl) {
+    if (latestSession.status === 'completed') {
+      turnEl.textContent = '🏁 The tale has ended.';
+    } else if (isStuck) {
+      turnEl.textContent = '⏳ Waiting for the storyteller…';
+    } else if (currentPlayer) {
+      turnEl.textContent = currentTurnUid === currentUser.uid 
+        ? '🎯 It is your turn!' 
+        : `⏳ Waiting on ${currentPlayer.display_name}…`;
+    }
+  }
+
+  // Story Text
+  const storyTextEl = $('story-text');
+  if (storyTextEl) storyTextEl.textContent = latestSession.story_narrative || '';
+
+  // Choices
+  const isMyTurn = currentTurnUid === currentUser.uid && latestSession.status === 'active';
+  const choicesEl = $('choices');
+  
+  if (choicesEl) {
+    if (isStuck) {
+      choicesEl.innerHTML = `<button id="btn-start-tale" class="choice-btn">🔥 Start the tale</button>`;
+      $('btn-start-tale')?.addEventListener('click', retryKickoff);
+    } else if (!choices.length || latestSession.status !== 'active') {
+      choicesEl.innerHTML = '';
+    } else {
+      choicesEl.innerHTML = choices.map((c, i) => `
+        <button class="choice-btn" data-choice="${i}" ${isMyTurn ? '' : 'disabled'}>
+          ${escapeHtml(c)}
+        </button>
+      `).join('');
+      
+      choicesEl.querySelectorAll('[data-choice]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          sounds.playClick();
+          submitChoice(Number(btn.dataset.choice));
+        });
+      });
+    }
+  }
+
+  // Status
+  const statusEl = $('story-status');
+  if (statusEl) {
+    statusEl.textContent = isStuck 
+      ? '' 
+      : (isMyTurn ? '' : (latestSession.status === 'active' ? 'Only the active player can choose.' : ''));
+  }
+
+  renderStoryLog();
+}
+
+// ---------- Submit Choice ----------
+async function submitChoice(choiceIndex) {
+  const choicesEl = $('choices');
+  if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
+  
+  const statusEl = $('story-status');
+  if (statusEl) statusEl.textContent = '⏳ The storyteller is weaving…';
+  
+  const { data, error } = await sb.functions.invoke('generate-story', {
+    body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
+  });
+  
+  if (error) {
+    console.error('submitChoice failed:', error);
+    if (statusEl) statusEl.textContent = '❌ The story engine faltered — please try again.';
+    toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+  }
+}
+
+// ---------- Story Log ----------
+function renderStoryLog() {
+  const logEl = $('story-log');
+  if (!logEl || !latestSession) return;
+  
+  const history = latestSession.story_history || [];
+  if (!history.length) {
+    logEl.innerHTML = `<li class="log-item" style="color: var(--text-muted);">No actions yet.</li>`;
+    return;
+  }
+  
+  logEl.innerHTML = history.slice().reverse().map(h => {
+    if (h.party) {
+      return `<li class="log-item log-party">⚡ ${escapeHtml(h.outcome)}</li>`;
+    }
+    const impactText = typeof h.impact === 'number'
+      ? (h.impact < 0 ? ` — lost ${Math.abs(h.impact)} HP` : h.impact > 0 ? ` — recovered ${h.impact} HP` : ' — unscathed')
+      : '';
+    const rollText = h.roll ? ` (${escapeHtml(h.roll)})` : '';
+    return `<li class="log-item">
+      <div class="log-player">${escapeHtml(h.player)}${impactText}${rollText}</div>
+      ${h.choice ? `<div class="log-choice">"${escapeHtml(h.choice)}"</div>` : ''}
+    </li>`;
+  }).join('');
+}
+
+// ---------- End Screen ----------
+function showEndScreen(session) {
+  showScreen('screen-end');
+  const winner = latestPlayers.find(p => p.is_alive);
+  const titleEl = $('end-title');
+  const summaryEl = $('end-summary');
+  
+  if (titleEl) {
+    titleEl.textContent = winner ? `🔥 ${winner.display_name} survives!` : '💀 The table has fallen';
+  }
+  if (summaryEl) summaryEl.textContent = session.story_narrative || '';
+
+  if (autoResetTimer) {
+    clearTimeout(autoResetTimer);
+    autoResetTimer = null;
+  }
+  
+  autoResetTimer = setTimeout(async () => {
+    autoResetTimer = null;
+    const { data, error } = await sb.functions.invoke('reset-session', {
+      body: { sessionId: currentSessionId, userId: currentUser.uid },
+    });
+    if (error) {
+      console.error('Auto reset failed:', error);
+    } else {
+      toast('🔄 Table reset — ready for a new tale!', 3000, 'success');
+    }
+  }, 6000);
+}
+
+// ============================================================
+// MASTER RESET - FIXED VERSION
+// ============================================================
+
+// ---------- Master Reset Button - Open Modal ----------
+const resetOpenBtn = document.getElementById('btn-master-reset-open');
+if (resetOpenBtn) {
+  resetOpenBtn.addEventListener('click', function(e) {
+    console.log('🔄 Reset button clicked!'); // Debug log
+    
+    if (!currentUser) {
+      toast('Please login first.', 3000, 'error');
+      return;
+    }
+    
+    const sessionId = currentSessionId || currentUser?.activeSessionId;
+    if (!sessionId) {
+      toast('Join or create a session first.', 3000, 'error');
+      return;
+    }
+    
+    // Clear previous values
+    const pwInput = document.getElementById('reset-password');
+    if (pwInput) pwInput.value = '';
+    
+    const errEl = document.getElementById('reset-error');
+    if (errEl) errEl.textContent = '';
+    
+    // Show the modal
+    const modal = document.getElementById('modal-reset');
+    if (modal) {
+      modal.showModal();
+      console.log('✅ Reset modal opened');
+    } else {
+      console.error('❌ Modal element not found!');
+      toast('Modal not found.', 3000, 'error');
+    }
+  });
+} else {
+  console.error('❌ Reset button not found!');
+}
+
+// ---------- Reset Cancel Button ----------
+const resetCancelBtn = document.getElementById('btn-reset-cancel');
+if (resetCancelBtn) {
+  resetCancelBtn.addEventListener('click', function() {
+    const modal = document.getElementById('modal-reset');
+    if (modal) modal.close();
+    console.log('Reset cancelled');
+  });
+}
+
+// ---------- Reset Confirm Button ----------
+const resetConfirmBtn = document.getElementById('btn-reset-confirm');
+if (resetConfirmBtn) {
+  resetConfirmBtn.addEventListener('click', async function() {
+    console.log('🔄 Reset confirm clicked!');
+    
+    const sessionId = currentSessionId || currentUser?.activeSessionId;
+    const errEl = document.getElementById('reset-error');
+    const pwInput = document.getElementById('reset-password');
+    
+    // Clear previous error
+    if (errEl) errEl.textContent = '';
+    
+    // Validate
+    if (!sessionId) {
+      if (errEl) errEl.textContent = 'No active session to reset.';
+      return;
+    }
+    
+    const password = pwInput?.value || '';
+    if (!password) {
+      if (errEl) errEl.textContent = 'Please enter the master password.';
+      return;
+    }
+    
+    // Disable button while processing
+    const confirmBtn = this;
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = '⏳ Resetting...';
+    
+    try {
+      console.log(`📤 Sending reset request for session: ${sessionId}`);
+      
+      const { data, error } = await sb.functions.invoke('master-reset', {
+        body: { 
+          sessionId: sessionId, 
+          userId: currentUser.uid, 
+          password: password 
+        },
+      });
+      
+      console.log('📥 Reset response:', { data, error });
+      
+      if (error) {
+        console.error('❌ Reset error:', error);
+        const errorMsg = error.message || 'Incorrect password or server error.';
+        if (errEl) errEl.textContent = errorMsg;
+        toast('❌ Reset failed: ' + errorMsg, 4000, 'error');
+        return;
+      }
+      
+      // Success!
+      console.log('✅ Reset successful!', data);
+      
+      // Close modal
+      const modal = document.getElementById('modal-reset');
+      if (modal) modal.close();
+      
+      toast('🔄 Session has been completely wiped and reset!', 3000, 'success');
+      
+      // Refresh the game state
+      if (typeof refreshGameState === 'function') {
+        await refreshGameState();
+      }
+      
+      // If we're in the lobby, refresh the lobby list
+      const lobbyScreen = document.getElementById('screen-lobby');
+      if (lobbyScreen && lobbyScreen.classList.contains('active')) {
+        if (typeof refreshLobbyList === 'function') {
+          refreshLobbyList();
+        }
+      }
+      
+      // If we're in the game, reload
+      const gameScreen = document.getElementById('screen-game');
+      if (gameScreen && gameScreen.classList.contains('active')) {
+        // Re-enter the game to refresh
+        if (typeof enterGame === 'function') {
+          enterGame(sessionId);
+        }
+      }
+      
+    } catch (err) {
+      console.error('❌ Unexpected reset error:', err);
+      if (errEl) errEl.textContent = err.message || 'Something went wrong.';
+      toast('❌ Reset failed: ' + (err.message || 'Unknown error'), 4000, 'error');
+    } finally {
+      // Re-enable button
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Reset Session';
+    }
+  });
+} else {
+  console.error('❌ Reset confirm button not found!');
+}
+
+// ---------- Close modal on backdrop click ----------
+const resetModal = document.getElementById('modal-reset');
+if (resetModal) {
+  resetModal.addEventListener('click', function(e) {
+    if (e.target === this) {
+      this.close();
+      console.log('Modal closed by backdrop click');
+    }
+  });
+}
+
+// ---------- Close modal with Escape key ----------
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    const modal = document.getElementById('modal-reset');
+    if (modal && modal.open) {
+      modal.close();
+      console.log('Modal closed with Escape key');
+    }
+  }
+});
+
+// ---------- Cleanup ----------
+function teardownSubscriptions() {
+  if (gameChannel) { 
+    sb.removeChannel(gameChannel); 
+    gameChannel = null; 
+  }
+  if (lobbyChannel) { 
+    sb.removeChannel(lobbyChannel); 
+    lobbyChannel = null; 
+  }
+  if (autoResetTimer) { 
+    clearTimeout(autoResetTimer); 
+    autoResetTimer = null; 
+  }
+  currentSessionId = null;
+  latestSession = null;
+  latestPlayers = [];
+}
+
+// ---------- Boot ----------
+document.addEventListener('DOMContentLoaded', () => {
+  tryResumeFromStorage();
+});
+
+// ---------- Keyboard Shortcuts ----------
+document.addEventListener('keydown', (e) => {
+  // Escape to close modal
+  if (e.key === 'Escape') {
+    const modal = $('modal-reset');
+    if (modal?.open) modal.close();
+  }
+  
+  // Number keys 1-3 for choices
+  if (e.key >= '1' && e.key <= '3') {
+    const choiceBtn = document.querySelector(`.choice-btn[data-choice="${parseInt(e.key) - 1}"]`);
+    if (choiceBtn && !choiceBtn.disabled) {
+      choiceBtn.click();
+    }
+  }
+});
