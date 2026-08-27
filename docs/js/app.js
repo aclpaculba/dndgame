@@ -129,12 +129,16 @@ function toast(msg, ms = 3200, type = 'info') {
   toast._t = setTimeout(() => t.classList.add('hidden'), ms);
 }
 
+// preferred_ui_mode still stores 'animated' / 'simple' in the database
+// (unchanged, so no migration needed) but the meaning has changed: it
+// now toggles a "plain" mode that strips all styling down to raw,
+// unstyled black-and-white HTML — no colors, no rounded corners, no
+// gradients, no shadows, no animation — rather than a fancier look.
 function applyTheme(mode) {
-  const isAnimated = mode === 'animated';
-  document.body.classList.toggle('theme-animated', isAnimated);
-  document.body.classList.toggle('theme-simple', !isAnimated);
-  
-  const label = isAnimated ? '✨ Animated: On' : '✨ Animated: Off';
+  const isPlain = mode === 'animated';
+  document.body.classList.toggle('theme-plain', isPlain);
+
+  const label = isPlain ? 'Plain mode: On' : 'Plain mode: Off';
   const t1 = $('ui-mode-toggle');
   const t2 = $('ui-mode-toggle-2');
   if (t1) t1.textContent = label;
@@ -158,33 +162,6 @@ function getModifierDisplay(mod) {
 
 function getModifierClass(mod) {
   return mod >= 0 ? 'positive' : 'negative';
-}
-
-function getClassEmoji(className) {
-  const emojis = {
-    fighter: '⚔️',
-    rogue: '🗡️',
-    cleric: '✨',
-    wizard: '🔮',
-    ranger: '🏹',
-    paladin: '🛡️',
-    bard: '🎵',
-    druid: '🌿'
-  };
-  return emojis[className.toLowerCase()] || '⚔️';
-}
-
-function getRaceEmoji(raceName) {
-  const emojis = {
-    human: '🧑',
-    elf: '🧝',
-    dwarf: '⛏️',
-    halfling: '🍃',
-    gnome: '🔧',
-    'half-elf': '🧝‍♂️',
-    'half-orc': '💪'
-  };
-  return emojis[raceName.toLowerCase()] || '🧑';
 }
 
 function getDefaultStats() {
@@ -267,7 +244,7 @@ async function saveCharacter(characterData) {
     
     characters.push(data);
     renderCharacterList();
-    toast(`✨ ${data.name} has been created!`, 2500, 'success');
+    toast(`${data.name} has been created!`, 2500, 'success');
     sounds.playClick();
     
     // Close modal
@@ -313,7 +290,7 @@ function selectCharacter(charId) {
   currentCharacter = char;
   localStorage.setItem(CHAR_STORAGE_KEY, charId);
   renderCharacterList();
-  toast(`🎯 Selected ${char.name}`, 2000, 'success');
+  toast(`Selected ${char.name}`, 2000, 'success');
   sounds.playClick();
   
   // Go to lobby
@@ -338,46 +315,42 @@ function showCharacterStats(charId) {
   
   const content = $('stats-content');
   if (!content) return;
-  
-  const raceEmoji = getRaceEmoji(char.race);
-  const classEmoji = getClassEmoji(char.class);
-  
+
   content.innerHTML = `
     <div style="text-align: center; margin-bottom: var(--space-md);">
-      <span style="font-size: 2.5rem;">${classEmoji}</span>
       <h3 style="margin: var(--space-xs) 0;">${escapeHtml(char.name)}</h3>
-      <p class="text-secondary">${raceEmoji} ${escapeHtml(char.race)} · ${classEmoji} ${escapeHtml(char.class)} · Level ${char.level || 1}</p>
-      <p style="font-size: 0.85rem; color: var(--text-muted);">❤️ HP: ${getHitPoints(char.constitution || 8, char.level || 1)}</p>
+      <p class="text-secondary">${escapeHtml(char.race)} · ${escapeHtml(char.class)} · Level ${char.level || 1}</p>
+      <p style="font-size: 0.85rem; color: var(--text-muted);">HP: ${getHitPoints(char.constitution || 8, char.level || 1)}</p>
     </div>
     
     <div class="stats-sheet">
       <div class="stat-item">
-        <span class="stat-label">💪 Strength</span>
+        <span class="stat-label">Strength</span>
         <span class="stat-value">${stats.strength}</span>
         <span class="stat-mod ${getModifierClass(getStatModifier(stats.strength))}">${getModifierDisplay(getStatModifier(stats.strength))}</span>
       </div>
       <div class="stat-item">
-        <span class="stat-label">🏃 Dexterity</span>
+        <span class="stat-label">Dexterity</span>
         <span class="stat-value">${stats.dexterity}</span>
         <span class="stat-mod ${getModifierClass(getStatModifier(stats.dexterity))}">${getModifierDisplay(getStatModifier(stats.dexterity))}</span>
       </div>
       <div class="stat-item">
-        <span class="stat-label">💚 Constitution</span>
+        <span class="stat-label">Constitution</span>
         <span class="stat-value">${stats.constitution}</span>
         <span class="stat-mod ${getModifierClass(getStatModifier(stats.constitution))}">${getModifierDisplay(getStatModifier(stats.constitution))}</span>
       </div>
       <div class="stat-item">
-        <span class="stat-label">🧠 Intelligence</span>
+        <span class="stat-label">Intelligence</span>
         <span class="stat-value">${stats.intelligence}</span>
         <span class="stat-mod ${getModifierClass(getStatModifier(stats.intelligence))}">${getModifierDisplay(getStatModifier(stats.intelligence))}</span>
       </div>
       <div class="stat-item">
-        <span class="stat-label">👁️ Wisdom</span>
+        <span class="stat-label">Wisdom</span>
         <span class="stat-value">${stats.wisdom}</span>
         <span class="stat-mod ${getModifierClass(getStatModifier(stats.wisdom))}">${getModifierDisplay(getStatModifier(stats.wisdom))}</span>
       </div>
       <div class="stat-item">
-        <span class="stat-label">🎭 Charisma</span>
+        <span class="stat-label">Charisma</span>
         <span class="stat-value">${stats.charisma}</span>
         <span class="stat-mod ${getModifierClass(getStatModifier(stats.charisma))}">${getModifierDisplay(getStatModifier(stats.charisma))}</span>
       </div>
@@ -413,25 +386,22 @@ function renderCharacterList() {
   
   list.innerHTML = characters.map(char => {
     const isSelected = currentCharacter && currentCharacter.id === char.id;
-    const raceEmoji = getRaceEmoji(char.race);
-    const classEmoji = getClassEmoji(char.class);
     const hp = getHitPoints(char.constitution || 8, char.level || 1);
     
     return `
       <div class="character-card ${isSelected ? 'selected' : ''}" style="${isSelected ? 'border-color: #6c5ce7;' : ''}">
-        <span class="char-avatar">${classEmoji}</span>
         <div class="char-name">${escapeHtml(char.name)}</div>
-        <div class="char-class-race">${raceEmoji} ${escapeHtml(char.race)} · ${classEmoji} ${escapeHtml(char.class)}</div>
-        <div class="char-level">Level ${char.level || 1} · ❤️ ${hp} HP</div>
+        <div class="char-class-race">${escapeHtml(char.race)} · ${escapeHtml(char.class)}</div>
+        <div class="char-level">Level ${char.level || 1} · ${hp} HP</div>
         <div style="display: flex; gap: var(--space-xs); margin-top: var(--space-sm); flex-wrap: wrap;">
           <button class="btn btn-primary btn-sm char-select-btn" data-char-id="${char.id}">
-            ${isSelected ? '✅ Selected' : 'Select'}
+            ${isSelected ? 'Selected' : 'Select'}
           </button>
           <button class="btn btn-secondary btn-sm char-stats-btn" data-char-id="${char.id}">
-            📊 Stats
+            Stats
           </button>
           <button class="btn btn-danger btn-sm char-delete-btn" data-char-id="${char.id}">
-            ✕
+            Delete
           </button>
         </div>
       </div>
@@ -455,7 +425,7 @@ function renderCharacterList() {
 function enterCharacterSelection() {
   showScreen('screen-characters');
   const charEl = $('char-username');
-  if (charEl) charEl.textContent = `👤 ${currentUser.username}`;
+  if (charEl) charEl.textContent = `${currentUser.username}`;
   loadCharacters();
 }
 
@@ -669,10 +639,10 @@ function setCurrentUserFromProfile(profile) {
   applyTheme(currentUser.preferredUiMode);
   
   const el = $('lobby-username');
-  if (el) el.textContent = `👤 ${currentUser.username}`;
+  if (el) el.textContent = `${currentUser.username}`;
   
   const charEl = $('char-username');
-  if (charEl) charEl.textContent = `👤 ${currentUser.username}`;
+  if (charEl) charEl.textContent = `${currentUser.username}`;
 }
 
 // ---------- Lobby ----------
@@ -685,16 +655,19 @@ async function refreshLobbyList() {
   for (const s of sessions || []) {
     const { count } = await sb.from('players').select('*', { count: 'exact', head: true }).eq('session_id', s.id);
     if ((count ?? 0) >= 6) continue;
-    const isFull = (count ?? 0) >= 6;
+    const isOwn = s.creator_id === currentUser.uid;
     rows.push(`
       <div class="session-item">
         <div>
           <div style="font-weight: 600;">${escapeHtml(s.creator_name || 'A traveler')}'s table</div>
           <div class="session-meta">${count ?? 0}/6 players · ${s.id.slice(0, 6).toUpperCase()}</div>
         </div>
-        <button class="btn btn-secondary btn-sm" data-join="${s.id}" ${isFull ? 'disabled' : ''}>
-          ${isFull ? 'Full' : 'Join →'}
-        </button>
+        <div class="session-item-actions">
+          <button class="btn btn-secondary btn-sm" data-join="${s.id}">
+            Join →
+          </button>
+          ${isOwn ? `<button class="btn btn-danger btn-sm" data-delete="${s.id}">Delete</button>` : ''}
+        </div>
       </div>
     `);
   }
@@ -709,6 +682,40 @@ async function refreshLobbyList() {
       joinSession(b.dataset.join);
     });
   });
+
+  list.querySelectorAll('[data-delete]').forEach(b => {
+    b.addEventListener('click', () => {
+      sounds.playClick();
+      deleteSession(b.dataset.delete);
+    });
+  });
+}
+
+// Deletes a joinable table entirely — only shown to the table's
+// creator. Players and chat messages for that session are removed
+// automatically (they cascade-delete along with the session row);
+// this just also clears any profile that still points at it as its
+// "active session" so nobody's stuck with a stale Resume button.
+async function deleteSession(sessionId) {
+  if (!confirm('Delete this table? This removes it for everyone and cannot be undone.')) return;
+
+  try {
+    const { error } = await sb.from('sessions').delete().eq('id', sessionId);
+    if (error) throw error;
+
+    await sb.from('profiles').update({ active_session_id: null }).eq('active_session_id', sessionId);
+
+    if (currentUser.activeSessionId === sessionId) {
+      currentUser.activeSessionId = null;
+      const banner = $('active-session-banner');
+      if (banner) banner.classList.add('hidden');
+    }
+
+    toast('Table deleted.', 2500);
+  } catch (err) {
+    console.error('Failed to delete session:', err);
+    toast('Could not delete table: ' + (err.message || err), 3500, 'error');
+  }
 }
 
 function enterLobby() {
@@ -735,14 +742,18 @@ function enterLobby() {
   // THEN subscribe
   lobbyChannel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
-      console.log('✅ Lobby channel connected');
+      console.log('Lobby channel connected');
     } else if (status === 'CHANNEL_ERROR') {
-      console.error('❌ Lobby channel error');
+      console.error('Lobby channel error');
     }
   });
 }
 
 // ---------- Session Management ----------
+// The character's race/class/stats/background are randomized for
+// flavor, but the character's name always matches the username the
+// player signed in with — that's their identity at the table, not a
+// randomly-picked codename.
 function createRandomCharacter() {
   const stats = getDefaultStats();
   let remaining = 27;
@@ -762,11 +773,10 @@ function createRandomCharacter() {
   const races = ['Human', 'Elf', 'Dwarf', 'Halfling', 'Gnome', 'Half-Elf', 'Half-Orc'];
   const classes = ['Fighter', 'Rogue', 'Cleric', 'Wizard', 'Ranger', 'Paladin', 'Bard', 'Druid'];
   const backgrounds = ['Noble', 'Soldier', 'Urchin', 'Sage', 'Criminal', 'Folk Hero', 'Acolyte'];
-  const names = ['Byte', 'Kernel', 'Cipher', 'Pixel', 'Nova', 'Vector', 'Glitch', 'Cache', 'Proxy', 'Codec', 'Flux', 'Quantum'];
   const pick = values => values[Math.floor(Math.random() * values.length)];
 
   return {
-    name: pick(names),
+    name: currentUser.username,
     race: pick(races),
     class: pick(classes),
     level: 1,
@@ -979,7 +989,7 @@ function enterGame(sessionId) {
   showScreen('screen-game');
   
   const codeEl = $('game-session-code');
-  if (codeEl) codeEl.textContent = `🎯 ${sessionId.slice(0, 6).toUpperCase()}`;
+  if (codeEl) codeEl.textContent = `${sessionId.slice(0, 6).toUpperCase()}`;
 
   refreshGameState();
   refreshChatMessages();
@@ -1017,9 +1027,9 @@ function enterGame(sessionId) {
   // THEN subscribe
   gameChannel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
-      console.log('✅ Game channel connected for:', sessionId);
+      console.log('Game channel connected for:', sessionId);
     } else if (status === 'CHANNEL_ERROR') {
-      console.error('❌ Game channel error for:', sessionId);
+      console.error('Game channel error for:', sessionId);
     }
   });
 }
@@ -1029,7 +1039,7 @@ async function retryKickoff() {
   const btn = $('btn-start-tale');
   if (btn) {
     btn.disabled = true;
-    btn.textContent = '⏳ Writing…';
+    btn.textContent = 'Writing…';
   }
   
   const { data, error } = await sb.functions.invoke('generate-story', {
@@ -1044,7 +1054,7 @@ async function retryKickoff() {
     toast('Story engine unavailable. Local opening loaded.', 5000, 'error');
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '🔥 Start the tale';
+      btn.textContent = 'Start the tale';
     }
   }
 }
@@ -1069,7 +1079,7 @@ function renderGame() {
         <li class="player-item ${isTurn ? 'current-turn' : ''} ${!p.is_alive ? 'eliminated' : ''}" data-user-id="${p.user_id}">
           <div class="p-name">
             <span>${escapeHtml(characterName)}${p.user_id === currentUser.uid ? ' (you)' : ''}</span>
-            <span class="p-health-num">${p.is_alive ? pct : '💀'}</span>
+            <span class="p-health-num">${p.is_alive ? pct : 'Eliminated'}</span>
           </div>
           <div class="p-health-track">
             <div class="p-health-fill" style="width:${pct}%;background:${color}"></div>
@@ -1104,13 +1114,13 @@ function renderGame() {
 
   if (turnEl) {
     if (latestSession.status === 'completed') {
-      turnEl.textContent = '🏁 The tale has ended.';
+      turnEl.textContent = 'The tale has ended.';
     } else if (isStuck) {
-      turnEl.textContent = '⏳ Waiting for the storyteller…';
+      turnEl.textContent = 'Waiting for the storyteller…';
     } else if (currentPlayer) {
       turnEl.textContent = currentTurnUid === currentUser.uid 
-        ? '🎯 It is your turn!' 
-        : `⏳ Waiting on ${currentPlayer.display_name}…`;
+        ? 'It is your turn!' 
+        : `Waiting on ${currentPlayer.display_name}…`;
     }
   }
 
@@ -1124,7 +1134,7 @@ function renderGame() {
   
   if (choicesEl) {
     if (isStuck) {
-      choicesEl.innerHTML = `<button id="btn-start-tale" class="choice-btn">🔥 Start the tale</button>`;
+      choicesEl.innerHTML = `<button id="btn-start-tale" class="choice-btn">Start the tale</button>`;
       $('btn-start-tale')?.addEventListener('click', retryKickoff);
     } else if (!choices.length || latestSession.status !== 'active') {
       choicesEl.innerHTML = '';
@@ -1161,7 +1171,7 @@ async function submitChoice(choiceIndex) {
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
   
   const statusEl = $('story-status');
-  if (statusEl) statusEl.textContent = '⏳ The storyteller is weaving…';
+  if (statusEl) statusEl.textContent = 'The storyteller is weaving…';
   
   const { data, error } = await sb.functions.invoke('generate-story', {
     body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
@@ -1169,7 +1179,7 @@ async function submitChoice(choiceIndex) {
   
   if (error) {
     console.error('submitChoice failed:', error);
-    if (statusEl) statusEl.textContent = '❌ The story engine faltered — please try again.';
+    if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
     toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
   }
 }
@@ -1187,7 +1197,7 @@ function renderStoryLog() {
   
   logEl.innerHTML = history.slice().reverse().map(h => {
     if (h.party) {
-      return `<li class="log-item log-party">⚡ ${escapeHtml(h.outcome)}</li>`;
+      return `<li class="log-item log-party">${escapeHtml(h.outcome)}</li>`;
     }
     const impactText = typeof h.impact === 'number'
       ? (h.impact < 0 ? ` — lost ${Math.abs(h.impact)} HP` : h.impact > 0 ? ` — recovered ${h.impact} HP` : ' — unscathed')
@@ -1208,7 +1218,7 @@ function showEndScreen(session) {
   const summaryEl = $('end-summary');
   
   if (titleEl) {
-    titleEl.textContent = winner ? `🔥 ${winner.display_name} survives!` : '💀 The table has fallen';
+    titleEl.textContent = winner ? `${winner.display_name} survives!` : 'The table has fallen';
   }
   if (summaryEl) summaryEl.textContent = session.story_narrative || '';
 
@@ -1225,7 +1235,7 @@ function showEndScreen(session) {
     if (error) {
       console.error('Auto reset failed:', error);
     } else {
-      toast('🔄 Table reset — ready for a new tale!', 3000, 'success');
+      toast('Table reset — ready for a new tale!', 3000, 'success');
     }
   }, 6000);
 }
