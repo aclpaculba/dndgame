@@ -17,7 +17,7 @@
 // profiles, sessions, and players), which is fine for a casual
 // game with friends but is not a real security boundary.
 // ============================================================
-const SUPABASE_URL = 'https://REPLACE_WITH_YOUR_PROJECT_REF.supabase.co';
-const SUPABASE_ANON_KEY = 'REPLACE_WITH_YOUR_ANON_PUBLIC_KEY';
+const SUPABASE_URL = 'https://crusicbsdbdqlajgbvsb.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNydXNpY2JzZGJkcWxhamdidnNiIiwiaWF0IjoxNzg3NzAzMTU4LCJleHAiOjIxMDMyNzkxNX0.WWdKIiUFA7ewIkVCTSXdnGI0fpLMOg65UifijhL8Fig';
 
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const sb = window.supabase?.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) || null;

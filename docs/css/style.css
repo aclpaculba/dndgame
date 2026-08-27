@@ -1,41 +1,40 @@
 /* ============================================================
-  Stackfall — Modern Design System
-   Glass-morphism UI with gradient accents and smooth animations
-   Font: Inter (modern sans-serif)
+  Stackfall — Ashen Edition Design System
+   Dark fantasy game UI with iron panels and ember accents
    ============================================================ */
 
 /* ---------- Import Modern Font ---------- */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap');
 
 /* ---------- CSS Variables (Design Tokens) ---------- */
 :root {
   /* Colors - Dark Mode with Vibrant Accents */
-  --bg-primary: #07070a;
-  --bg-secondary: #0d0d14;
-  --bg-card: rgba(20, 20, 35, 0.8);
-  --bg-card-hover: rgba(30, 30, 50, 0.9);
-  --bg-elevated: rgba(40, 40, 65, 0.6);
+  --bg-primary: #0d0d0c;
+  --bg-secondary: #171614;
+  --bg-card: rgba(27, 25, 22, 0.94);
+  --bg-card-hover: rgba(42, 36, 29, 0.98);
+  --bg-elevated: rgba(51, 43, 33, 0.8);
   
   /* Glass Effects */
-  --glass-bg: rgba(15, 15, 30, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.06);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --glass-bg: rgba(25, 23, 20, 0.92);
+  --glass-border: rgba(213, 180, 115, 0.18);
+  --glass-shadow: 0 12px 35px rgba(0, 0, 0, 0.55);
   
   /* Gradient Accents */
-  --gradient-primary: linear-gradient(135deg, #6c5ce7, #a29bfe);
-  --gradient-secondary: linear-gradient(135deg, #00b894, #00cec9);
-  --gradient-accent: linear-gradient(135deg, #fd79a8, #e17055);
-  --gradient-gold: linear-gradient(135deg, #fdcb6e, #f39c12);
+  --gradient-primary: linear-gradient(135deg, #b7482d, #e18a3b);
+  --gradient-secondary: linear-gradient(135deg, #66745a, #9cae7d);
+  --gradient-accent: linear-gradient(135deg, #8f3028, #c55335);
+  --gradient-gold: linear-gradient(135deg, #b88a45, #e0b96f);
   
   /* Text Colors */
-  --text-primary: #ffffff;
-  --text-secondary: rgba(255, 255, 255, 0.7);
-  --text-muted: rgba(255, 255, 255, 0.4);
+  --text-primary: #f1e9d8;
+  --text-secondary: #b9ad98;
+  --text-muted: #766e62;
   
   /* Health Colors */
-  --health-full: #00b894;
-  --health-mid: #fdcb6e;
-  --health-low: #e17055;
+  --health-full: #91a66d;
+  --health-mid: #d0a452;
+  --health-low: #c55335;
   
   /* Spacing */
   --space-xs: 4px;
@@ -46,10 +45,10 @@
   --space-2xl: 48px;
   
   /* Border Radius */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
-  --radius-xl: 28px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
   --radius-full: 9999px;
   
   /* Transitions */
@@ -59,7 +58,8 @@
   --transition-bounce: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
   
   /* Font */
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-family: 'Source Sans 3', sans-serif;
+  --font-display: 'Cinzel', serif;
 }
 
 /* ---------- Reset & Base ---------- */
@@ -78,7 +78,10 @@ body {
 }
 
 body {
-  background: var(--bg-primary);
+  background:
+    radial-gradient(circle at 50% -20%, rgba(165, 86, 43, 0.16), transparent 42%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 4px),
+    var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-family);
   font-size: 16px;
@@ -171,6 +174,11 @@ body {
   transition: all var(--transition-base);
 }
 
+h1, h2, h3, h4, .topbar-brand, .boss-name {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+}
+
 .glass-card:hover {
   background: var(--bg-card-hover);
   transform: translateY(-2px);
@@ -205,12 +213,12 @@ body {
 .btn-primary {
   background: var(--gradient-primary);
   color: white;
-  box-shadow: 0 4px 16px rgba(108, 92, 231, 0.3);
+  box-shadow: 0 4px 16px rgba(183, 72, 45, 0.28);
 }
 
 .btn-primary:hover:not(:disabled) {
   transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 8px 24px rgba(108, 92, 231, 0.5);
+  box-shadow: 0 8px 24px rgba(225, 138, 59, 0.38);
 }
 
 .btn-primary:active:not(:disabled) {
@@ -283,8 +291,8 @@ body {
 
 .input-modern:focus {
   outline: none;
-  border-color: #6c5ce7;
-  box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.2);
+  border-color: #d18a4b;
+  box-shadow: 0 0 0 3px rgba(209, 138, 75, 0.18);
   background: rgba(255, 255, 255, 0.08);
 }
 
@@ -300,7 +308,7 @@ body {
   padding: var(--space-lg);
   min-height: 100vh;
   background: 
-    radial-gradient(ellipse at 50% 0%, rgba(108, 92, 231, 0.15), transparent 60%),
+    radial-gradient(ellipse at 50% 0%, rgba(183, 72, 45, 0.18), transparent 60%),
     var(--bg-primary);
 }
 
@@ -455,13 +463,13 @@ body {
 .character-card:hover {
   background: var(--bg-card-hover);
   transform: translateY(-4px);
-  box-shadow: 0 8px 32px rgba(108, 92, 231, 0.2);
-  border-color: rgba(108, 92, 231, 0.3);
+  box-shadow: 0 8px 32px rgba(183, 72, 45, 0.2);
+  border-color: rgba(183, 72, 45, 0.3);
 }
 
 .character-card.selected {
-  border-color: #6c5ce7;
-  box-shadow: 0 0 30px rgba(108, 92, 231, 0.2);
+  border-color: #d18a4b;
+  box-shadow: 0 0 30px rgba(209, 138, 75, 0.2);
 }
 
 .character-card .char-avatar {
@@ -733,7 +741,7 @@ body {
   margin-top: var(--space-md);
   padding: var(--space-md) var(--space-lg);
   background: var(--glass-bg);
-  border: 1px solid rgba(108, 92, 231, 0.3);
+  border: 1px solid rgba(183, 72, 45, 0.3);
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
@@ -806,9 +814,9 @@ body {
 }
 
 .player-item.current-turn {
-  border-color: #6c5ce7;
-  background: rgba(108, 92, 231, 0.1);
-  box-shadow: 0 0 20px rgba(108, 92, 231, 0.1);
+  border-color: #d18a4b;
+  background: rgba(183, 72, 45, 0.1);
+  box-shadow: 0 0 20px rgba(183, 72, 45, 0.1);
 }
 
 .player-item.eliminated {
@@ -922,7 +930,7 @@ body {
   padding: var(--space-md);
   background: rgba(255, 255, 255, 0.02);
   border-radius: var(--radius-md);
-  border-left: 3px solid #6c5ce7;
+  border-left: 3px solid #d18a4b;
   min-height: 120px;
 }
 
@@ -1036,7 +1044,7 @@ body {
 
 .choice-btn:hover:not(:disabled) {
   background: var(--bg-card-hover);
-  border-color: #6c5ce7;
+  border-color: #d18a4b;
   transform: translateX(4px);
 }
 
@@ -1053,7 +1061,7 @@ body {
 }
 
 .choice-btn:hover:not(:disabled)::before {
-  color: #6c5ce7;
+  color: #d18a4b;
   transform: translateX(4px);
 }
 
@@ -1162,8 +1170,8 @@ body {
 }
 
 .chat-message.own {
-  background: rgba(108, 92, 231, 0.1);
-  border: 1px solid rgba(108, 92, 231, 0.2);
+  background: rgba(183, 72, 45, 0.1);
+  border: 1px solid rgba(183, 72, 45, 0.2);
 }
 
 .chat-author {
@@ -1191,7 +1199,7 @@ body {
 
 .chat-form input:focus {
   outline: none;
-  border-color: #6c5ce7;
+  border-color: #d18a4b;
 }
 
 /* ---------- End Screen ---------- */
@@ -1202,7 +1210,7 @@ body {
   padding: var(--space-lg);
   min-height: 100vh;
   background: 
-    radial-gradient(ellipse at 50% 100%, rgba(108, 92, 231, 0.1), transparent 60%),
+    radial-gradient(ellipse at 50% 100%, rgba(183, 72, 45, 0.12), transparent 60%),
     var(--bg-primary);
 }
 

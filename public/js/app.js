@@ -503,6 +503,7 @@ $('form-name')?.addEventListener('submit', async (e) => {
   }
   
   try {
+    if (!sb) throw new Error('The database client is unavailable. Check your internet connection and reload the page.');
     const { data: profile, error } = await sb.rpc('login_or_create_profile', { p_username: name });
     if (error) throw error;
     setCurrentUserFromProfile(profile);
