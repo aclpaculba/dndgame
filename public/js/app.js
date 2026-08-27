@@ -1,6 +1,6 @@
 // ============================================================
 // Last Ember — Modern Client Application Logic
-// With Character Creation and Stats System
+// With Character Creation, Stats System, and Realtime Fixes
 // ============================================================
 
 // ---------- Sound Manager ----------
@@ -64,12 +64,14 @@ class SoundManager {
 
 // ---------- Global State ----------
 let currentUser = null;
-let currentCharacter = null; // Selected character for this session
+let currentCharacter = null;
 let currentSessionId = null;
 let gameChannel = null;
 let lobbyChannel = null;
 let latestPlayers = [];
 let latestSession = null;
+let characters = [];
+let autoResetTimer = null;
 
 const STORAGE_KEY = 'lastEmberUser';
 const CHAR_STORAGE_KEY = 'lastEmberCharacter';
@@ -169,7 +171,6 @@ function getRaceEmoji(raceName) {
   return emojis[raceName.toLowerCase()] || '🧑';
 }
 
-// ---------- Character Management ----------
 function getDefaultStats() {
   return {
     strength: 8,
@@ -204,26 +205,302 @@ function statIsValid(stats) {
 
 function getHitPoints(constitution, level = 1) {
   const conMod = getStatModifier(constitution);
-  // Base HP for level 1: max hit die (10 for fighter) + con mod
   return 10 + conMod;
 }
 
-// ---------- User Management ----------
-function setCurrentUserFromProfile(profile) {
-  currentUser = {
-    uid: profile.id,
-    username: profile.username,
-    preferredUiMode: profile.preferred_ui_mode || 'simple',
-    activeSessionId: profile.active_session_id,
+// ---------- Character Management ----------
+async function loadCharacters() {
+  if (!currentUser) return;
+  
+  try {
+    const { data, error } = await sb
+      .from('characters')
+      .select('*')
+      .eq('profile_id', currentUser.uid)
+      .order('created_at', { ascending: true });
+    
+    if (error) throw error;
+    characters = data || [];
+    renderCharacterList();
+    
+    // Check if there's a stored character selection
+    const savedCharId = localStorage.getItem(CHAR_STORAGE_KEY);
+    if (savedCharId && characters.some(c => c.id === savedCharId)) {
+      currentCharacter = characters.find(c => c.id === savedCharId);
+    }
+  } catch (err) {
+    console.error('Failed to load characters:', err);
+    toast('Could not load characters: ' + err.message, 3000, 'error');
+  }
+}
+
+async function saveCharacter(characterData) {
+  if (!currentUser) return;
+  
+  try {
+    const { data, error } = await sb
+      .from('characters')
+      .insert({
+        ...characterData,
+        profile_id: currentUser.uid
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    characters.push(data);
+    renderCharacterList();
+    toast(`✨ ${data.name} has been created!`, 2500, 'success');
+    sounds.playClick();
+    
+    // Close modal
+    const modal = $('modal-character-creation');
+    if (modal) modal.close();
+    
+    return data;
+  } catch (err) {
+    console.error('Failed to save character:', err);
+    toast('Could not save character: ' + err.message, 3000, 'error');
+  }
+}
+
+async function deleteCharacter(charId) {
+  if (!confirm('Are you sure you want to delete this character?')) return;
+  
+  try {
+    const { error } = await sb
+      .from('characters')
+      .delete()
+      .eq('id', charId)
+      .eq('profile_id', currentUser.uid);
+    
+    if (error) throw error;
+    
+    characters = characters.filter(c => c.id !== charId);
+    if (currentCharacter && currentCharacter.id === charId) {
+      currentCharacter = null;
+      localStorage.removeItem(CHAR_STORAGE_KEY);
+    }
+    renderCharacterList();
+    toast('Character deleted.', 2000);
+  } catch (err) {
+    console.error('Failed to delete character:', err);
+    toast('Could not delete character: ' + err.message, 3000, 'error');
+  }
+}
+
+function selectCharacter(charId) {
+  const char = characters.find(c => c.id === charId);
+  if (!char) return;
+  
+  currentCharacter = char;
+  localStorage.setItem(CHAR_STORAGE_KEY, charId);
+  renderCharacterList();
+  toast(`🎯 Selected ${char.name}`, 2000, 'success');
+  sounds.playClick();
+  
+  // Go to lobby
+  enterLobby();
+}
+
+function showCharacterStats(charId) {
+  const char = characters.find(c => c.id === charId) || currentCharacter;
+  if (!char) {
+    toast('No character selected.', 3000, 'error');
+    return;
+  }
+  
+  const stats = {
+    strength: char.strength || 8,
+    dexterity: char.dexterity || 8,
+    constitution: char.constitution || 8,
+    intelligence: char.intelligence || 8,
+    wisdom: char.wisdom || 8,
+    charisma: char.charisma || 8
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ uid: profile.id, username: profile.username }));
-  applyTheme(currentUser.preferredUiMode);
   
-  const el = $('lobby-username');
-  if (el) el.textContent = `👤 ${currentUser.username}`;
+  const content = $('stats-content');
+  if (!content) return;
   
+  const raceEmoji = getRaceEmoji(char.race);
+  const classEmoji = getClassEmoji(char.class);
+  
+  content.innerHTML = `
+    <div style="text-align: center; margin-bottom: var(--space-md);">
+      <span style="font-size: 2.5rem;">${classEmoji}</span>
+      <h3 style="margin: var(--space-xs) 0;">${escapeHtml(char.name)}</h3>
+      <p class="text-secondary">${raceEmoji} ${escapeHtml(char.race)} · ${classEmoji} ${escapeHtml(char.class)} · Level ${char.level || 1}</p>
+      <p style="font-size: 0.85rem; color: var(--text-muted);">❤️ HP: ${getHitPoints(char.constitution || 8, char.level || 1)}</p>
+    </div>
+    
+    <div class="stats-sheet">
+      <div class="stat-item">
+        <span class="stat-label">💪 Strength</span>
+        <span class="stat-value">${stats.strength}</span>
+        <span class="stat-mod ${getModifierClass(getStatModifier(stats.strength))}">${getModifierDisplay(getStatModifier(stats.strength))}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">🏃 Dexterity</span>
+        <span class="stat-value">${stats.dexterity}</span>
+        <span class="stat-mod ${getModifierClass(getStatModifier(stats.dexterity))}">${getModifierDisplay(getStatModifier(stats.dexterity))}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">💚 Constitution</span>
+        <span class="stat-value">${stats.constitution}</span>
+        <span class="stat-mod ${getModifierClass(getStatModifier(stats.constitution))}">${getModifierDisplay(getStatModifier(stats.constitution))}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">🧠 Intelligence</span>
+        <span class="stat-value">${stats.intelligence}</span>
+        <span class="stat-mod ${getModifierClass(getStatModifier(stats.intelligence))}">${getModifierDisplay(getStatModifier(stats.intelligence))}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">👁️ Wisdom</span>
+        <span class="stat-value">${stats.wisdom}</span>
+        <span class="stat-mod ${getModifierClass(getStatModifier(stats.wisdom))}">${getModifierDisplay(getStatModifier(stats.wisdom))}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">🎭 Charisma</span>
+        <span class="stat-value">${stats.charisma}</span>
+        <span class="stat-mod ${getModifierClass(getStatModifier(stats.charisma))}">${getModifierDisplay(getStatModifier(stats.charisma))}</span>
+      </div>
+    </div>
+    
+    ${char.background || char.personality || char.ideal || char.bond || char.flaw ? `
+      <div class="stats-info">
+        ${char.background ? `<div class="info-item"><span class="label">Background</span><span>${escapeHtml(char.background)}</span></div>` : ''}
+        ${char.personality ? `<div class="info-item"><span class="label">Personality</span><span>${escapeHtml(char.personality)}</span></div>` : ''}
+        ${char.ideal ? `<div class="info-item"><span class="label">Ideal</span><span>${escapeHtml(char.ideal)}</span></div>` : ''}
+        ${char.bond ? `<div class="info-item"><span class="label">Bond</span><span>${escapeHtml(char.bond)}</span></div>` : ''}
+        ${char.flaw ? `<div class="info-item"><span class="label">Flaw</span><span>${escapeHtml(char.flaw)}</span></div>` : ''}
+      </div>
+    ` : ''}
+  `;
+  
+  const modal = $('modal-character-stats');
+  if (modal) modal.showModal();
+}
+
+function renderCharacterList() {
+  const list = $('character-list');
+  if (!list) return;
+  
+  if (characters.length === 0) {
+    list.innerHTML = `
+      <p class="text-muted" style="padding: var(--space-lg); text-align: center; grid-column: 1 / -1;">
+        No characters yet. Create your first adventure!
+      </p>
+    `;
+    return;
+  }
+  
+  list.innerHTML = characters.map(char => {
+    const isSelected = currentCharacter && currentCharacter.id === char.id;
+    const raceEmoji = getRaceEmoji(char.race);
+    const classEmoji = getClassEmoji(char.class);
+    const hp = getHitPoints(char.constitution || 8, char.level || 1);
+    
+    return `
+      <div class="character-card ${isSelected ? 'selected' : ''}" style="${isSelected ? 'border-color: #6c5ce7;' : ''}">
+        <span class="char-avatar">${classEmoji}</span>
+        <div class="char-name">${escapeHtml(char.name)}</div>
+        <div class="char-class-race">${raceEmoji} ${escapeHtml(char.race)} · ${classEmoji} ${escapeHtml(char.class)}</div>
+        <div class="char-level">Level ${char.level || 1} · ❤️ ${hp} HP</div>
+        <div style="display: flex; gap: var(--space-xs); margin-top: var(--space-sm); flex-wrap: wrap;">
+          <button class="btn btn-primary btn-sm char-select-btn" data-char-id="${char.id}">
+            ${isSelected ? '✅ Selected' : 'Select'}
+          </button>
+          <button class="btn btn-secondary btn-sm char-stats-btn" data-char-id="${char.id}">
+            📊 Stats
+          </button>
+          <button class="btn btn-danger btn-sm char-delete-btn" data-char-id="${char.id}">
+            ✕
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  // Event listeners for character cards
+  list.querySelectorAll('.char-select-btn').forEach(btn => {
+    btn.addEventListener('click', () => selectCharacter(btn.dataset.charId));
+  });
+  
+  list.querySelectorAll('.char-stats-btn').forEach(btn => {
+    btn.addEventListener('click', () => showCharacterStats(btn.dataset.charId));
+  });
+  
+  list.querySelectorAll('.char-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => deleteCharacter(btn.dataset.charId));
+  });
+}
+
+function enterCharacterSelection() {
+  showScreen('screen-characters');
   const charEl = $('char-username');
   if (charEl) charEl.textContent = `👤 ${currentUser.username}`;
+  loadCharacters();
+}
+
+// ---------- Character Creation Modal ----------
+let currentCharStats = getDefaultStats();
+
+function showCharStep(step) {
+  // Hide all steps
+  document.querySelectorAll('.char-step').forEach(el => el.classList.remove('active'));
+  
+  // Show target step
+  const target = $(`char-step-${step}`);
+  if (target) target.classList.add('active');
+  
+  // Update stats display if on step 2
+  if (step === 2) updateStatsDisplay();
+}
+
+function updateStatsDisplay() {
+  const statNames = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
+  
+  for (const stat of statNames) {
+    const valueEl = $(`stat-${stat}`);
+    const modEl = $(`mod-${stat}`);
+    if (valueEl) {
+      valueEl.textContent = currentCharStats[stat];
+    }
+    if (modEl) {
+      const mod = getStatModifier(currentCharStats[stat]);
+      modEl.textContent = getModifierDisplay(mod);
+      modEl.className = `stat-modifier ${getModifierClass(mod)}`;
+    }
+  }
+  
+  const pointsEl = $('stat-points-remaining');
+  if (pointsEl) {
+    const remaining = getAvailablePoints(currentCharStats);
+    pointsEl.textContent = remaining;
+    pointsEl.style.color = remaining < 0 ? 'var(--health-low)' : 'var(--text-primary)';
+  }
+}
+
+function adjustStat(stat, direction) {
+  const newValue = currentCharStats[stat] + direction;
+  
+  // Validate range
+  if (newValue < 8 || newValue > 15) return;
+  
+  // Check if we have enough points
+  const oldCost = calculatePointBuyCost(currentCharStats);
+  const testStats = { ...currentCharStats, [stat]: newValue };
+  const newCost = calculatePointBuyCost(testStats);
+  
+  if (newCost > 27) {
+    toast('Not enough points remaining!', 2000, 'error');
+    return;
+  }
+  
+  currentCharStats = testStats;
+  updateStatsDisplay();
+  sounds.playClick();
 }
 
 // ---------- Auth ----------
@@ -246,8 +523,6 @@ $('form-name')?.addEventListener('submit', async (e) => {
     if (error) throw error;
     setCurrentUserFromProfile(profile);
     sounds.playClick();
-    
-    // Go to character selection instead of directly to lobby
     enterCharacterSelection();
   } catch (err) {
     console.error(err);
@@ -260,4 +535,442 @@ $('form-name')?.addEventListener('submit', async (e) => {
   }
 });
 
-async function
+async function tryResumeFromStorage() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) { showScreen('screen-auth'); return; }
+
+  let saved;
+  try {
+    saved = JSON.parse(raw);
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+    showScreen('screen-auth');
+    return;
+  }
+
+  const { data: profile } = await sb.from('profiles').select('*').eq('id', saved.uid).maybeSingle();
+  if (!profile) {
+    localStorage.removeItem(STORAGE_KEY);
+    showScreen('screen-auth');
+    return;
+  }
+
+  setCurrentUserFromProfile(profile);
+  
+  // Check if there's a saved character
+  const savedCharId = localStorage.getItem(CHAR_STORAGE_KEY);
+  if (savedCharId) {
+    // Try to load characters and auto-select
+    await loadCharacters();
+    if (currentCharacter) {
+      enterLobby();
+      return;
+    }
+  }
+  
+  enterCharacterSelection();
+}
+
+$('btn-char-logout')?.addEventListener('click', () => {
+  teardownSubscriptions();
+  currentUser = null;
+  currentCharacter = null;
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(CHAR_STORAGE_KEY);
+  showScreen('screen-auth');
+  toast('Signed out successfully');
+});
+
+// ---------- Character Creation Events ----------
+$('btn-create-character')?.addEventListener('click', () => {
+  // Reset stats
+  currentCharStats = getDefaultStats();
+  updateStatsDisplay();
+  
+  // Clear form fields
+  const nameInput = $('char-name');
+  if (nameInput) nameInput.value = '';
+  
+  // Show step 1
+  showCharStep(1);
+  
+  const modal = $('modal-character-creation');
+  if (modal) modal.showModal();
+});
+
+$('btn-creation-close')?.addEventListener('click', () => {
+  const modal = $('modal-character-creation');
+  if (modal) modal.close();
+});
+
+// Stat adjustment buttons
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.stat-btn');
+  if (btn) {
+    const stat = btn.dataset.stat;
+    const dir = parseInt(btn.dataset.dir);
+    adjustStat(stat, dir);
+  }
+});
+
+$('form-character-creation')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  
+  const name = $('char-name')?.value.trim();
+  if (!name) {
+    toast('Please enter a character name.', 2000, 'error');
+    return;
+  }
+  
+  // Check if stats are valid
+  if (!statIsValid(currentCharStats)) {
+    toast('Please assign your stats properly (27 points, 8-15 each).', 3000, 'error');
+    showCharStep(2);
+    return;
+  }
+  
+  const charData = {
+    name,
+    race: $('char-race')?.value || 'Human',
+    class: $('char-class')?.value || 'Fighter',
+    level: 1,
+    strength: currentCharStats.strength,
+    dexterity: currentCharStats.dexterity,
+    constitution: currentCharStats.constitution,
+    intelligence: currentCharStats.intelligence,
+    wisdom: currentCharStats.wisdom,
+    charisma: currentCharStats.charisma,
+    background: $('char-background')?.value || '',
+    personality: $('char-personality')?.value || '',
+    ideal: $('char-ideal')?.value || '',
+    bond: $('char-bond')?.value || '',
+    flaw: $('char-flaw')?.value || ''
+  };
+  
+  await saveCharacter(charData);
+});
+
+// ---------- UI Mode Toggle ----------
+async function toggleUiMode() {
+  if (!currentUser) return;
+  const next = currentUser.preferredUiMode === 'animated' ? 'simple' : 'animated';
+  currentUser.preferredUiMode = next;
+  applyTheme(next);
+  sounds.playClick();
+  await sb.from('profiles').update({ preferred_ui_mode: next }).eq('id', currentUser.uid);
+}
+
+$('ui-mode-toggle')?.addEventListener('click', toggleUiMode);
+$('ui-mode-toggle-2')?.addEventListener('click', toggleUiMode);
+
+// ---------- User Management ----------
+function setCurrentUserFromProfile(profile) {
+  currentUser = {
+    uid: profile.id,
+    username: profile.username,
+    preferredUiMode: profile.preferred_ui_mode || 'simple',
+    activeSessionId: profile.active_session_id,
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ uid: profile.id, username: profile.username }));
+  applyTheme(currentUser.preferredUiMode);
+  
+  const el = $('lobby-username');
+  if (el) el.textContent = `👤 ${currentUser.username}`;
+  
+  const charEl = $('char-username');
+  if (charEl) charEl.textContent = `👤 ${currentUser.username}`;
+}
+
+// ---------- Lobby ----------
+async function refreshLobbyList() {
+  const { data: sessions } = await sb.from('sessions').select('*').eq('status', 'active');
+  const list = $('session-list');
+  if (!list) return;
+  
+  const rows = [];
+  for (const s of sessions || []) {
+    const { count } = await sb.from('players').select('*', { count: 'exact', head: true }).eq('session_id', s.id);
+    if ((count ?? 0) >= 6) continue;
+    const isFull = (count ?? 0) >= 6;
+    rows.push(`
+      <div class="session-item">
+        <div>
+          <div style="font-weight: 600;">${escapeHtml(s.creator_name || 'A traveler')}'s table</div>
+          <div class="session-meta">${count ?? 0}/6 players · ${s.id.slice(0, 6).toUpperCase()}</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" data-join="${s.id}" ${isFull ? 'disabled' : ''}>
+          ${isFull ? 'Full' : 'Join →'}
+        </button>
+      </div>
+    `);
+  }
+  
+  list.innerHTML = rows.join('');
+  const empty = $('session-list-empty');
+  if (empty) empty.classList.toggle('hidden', rows.length > 0);
+  
+  list.querySelectorAll('[data-join]').forEach(b => {
+    b.addEventListener('click', () => {
+      if (!currentCharacter) {
+        toast('Please select a character first.', 3000, 'error');
+        enterCharacterSelection();
+        return;
+      }
+      sounds.playClick();
+      joinSession(b.dataset.join);
+    });
+  });
+}
+
+function enterLobby() {
+  if (!currentCharacter) {
+    enterCharacterSelection();
+    return;
+  }
+  
+  showScreen('screen-lobby');
+  const banner = $('active-session-banner');
+  if (banner) banner.classList.toggle('hidden', !currentUser.activeSessionId);
+
+  refreshLobbyList();
+  
+  // FIX: Build channel with listeners BEFORE subscribe
+  if (lobbyChannel) {
+    sb.removeChannel(lobbyChannel);
+    lobbyChannel = null;
+  }
+  
+  lobbyChannel = sb.channel('lobby-sessions');
+  
+  // Add listeners
+  lobbyChannel
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, refreshLobbyList)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, refreshLobbyList);
+  
+  // Subscribe
+  lobbyChannel.subscribe((status) => {
+    if (status === 'SUBSCRIBED') {
+      console.log('✅ Lobby channel connected');
+    } else if (status === 'CHANNEL_ERROR') {
+      console.error('❌ Lobby channel error');
+    }
+  });
+}
+
+// ---------- Session Management ----------
+$('btn-create-session')?.addEventListener('click', async () => {
+  if (!currentCharacter) {
+    toast('Please select a character first.', 3000, 'error');
+    enterCharacterSelection();
+    return;
+  }
+  
+  try {
+    const { data: newSession, error: sErr } = await sb.from('sessions').insert({
+      creator_id: currentUser.uid,
+      creator_name: currentCharacter.name,
+      turn_order: [currentUser.uid],
+    }).select().single();
+    if (sErr) throw sErr;
+
+    const { error: pErr } = await sb.from('players').insert({
+      session_id: newSession.id,
+      user_id: currentUser.uid,
+      display_name: currentCharacter.name,
+      position_in_turn_order: 0,
+      character_id: currentCharacter.id,
+    });
+    if (pErr) throw pErr;
+
+    await sb.from('profiles').update({ active_session_id: newSession.id }).eq('id', currentUser.uid);
+    currentUser.activeSessionId = newSession.id;
+
+    enterGame(newSession.id);
+    toast(`🔥 ${currentCharacter.name} enters the tale!`, 2500, 'success');
+
+    const { error: fnErr } = await sb.functions.invoke('generate-story', {
+      body: { sessionId: newSession.id, userId: currentUser.uid, kickoff: true },
+    });
+    if (fnErr) {
+      console.error('Kickoff failed:', fnErr);
+      toast('Opening scene failed — use "Start the tale" to retry.', 4000, 'error');
+    }
+  } catch (err) {
+    console.error(err);
+    toast('Could not create session: ' + (err.message || err), 4000, 'error');
+  }
+});
+
+async function joinSession(sessionId) {
+  if (!currentCharacter) {
+    toast('Please select a character first.', 3000, 'error');
+    enterCharacterSelection();
+    return;
+  }
+  
+  try {
+    const { data: existing } = await sb.from('players').select('user_id')
+      .eq('session_id', sessionId).eq('user_id', currentUser.uid).maybeSingle();
+    if (existing) { enterGame(sessionId); return; }
+
+    const { data: sessionRow } = await sb.from('sessions').select('turn_order,status').eq('id', sessionId).single();
+    if (!sessionRow || sessionRow.status !== 'active') throw new Error('That session is no longer open.');
+
+    const { count } = await sb.from('players').select('*', { count: 'exact', head: true }).eq('session_id', sessionId);
+    if ((count ?? 0) >= 6) throw new Error('That table is full (6 players max).');
+
+    const order = sessionRow.turn_order || [];
+    const { error: pErr } = await sb.from('players').insert({
+      session_id: sessionId,
+      user_id: currentUser.uid,
+      display_name: currentCharacter.name,
+      position_in_turn_order: order.length,
+      character_id: currentCharacter.id,
+    });
+    if (pErr) throw pErr;
+
+    await sb.from('sessions').update({ turn_order: [...order, currentUser.uid] }).eq('id', sessionId);
+    await sb.from('profiles').update({ active_session_id: sessionId }).eq('id', currentUser.uid);
+    currentUser.activeSessionId = sessionId;
+    
+    enterGame(sessionId);
+    toast(`🎲 ${currentCharacter.name} joins the table!`, 2000, 'success');
+  } catch (err) {
+    console.error(err);
+    if (err.message?.includes('players_pkey') || err.code === '23505') {
+      currentUser.activeSessionId = sessionId;
+      enterGame(sessionId);
+    } else {
+      toast(err.message || 'Could not join that session.', 4000, 'error');
+    }
+  }
+}
+
+$('btn-resume-session')?.addEventListener('click', () => {
+  sounds.playClick();
+  enterGame(currentUser.activeSessionId);
+});
+
+$('btn-leave-session')?.addEventListener('click', () => {
+  sounds.playClick();
+  teardownSubscriptions();
+  enterLobby();
+  toast('Left the table.');
+});
+
+$('btn-back-to-lobby')?.addEventListener('click', () => {
+  teardownSubscriptions();
+  enterLobby();
+});
+
+// ---------- Stats Buttons ----------
+$('lobby-char-stats')?.addEventListener('click', () => {
+  if (currentCharacter) {
+    showCharacterStats(currentCharacter.id);
+  } else {
+    toast('No character selected.', 3000, 'error');
+  }
+});
+
+$('game-char-stats')?.addEventListener('click', () => {
+  if (currentCharacter) {
+    showCharacterStats(currentCharacter.id);
+  } else {
+    toast('No character selected.', 3000, 'error');
+  }
+});
+
+$('btn-stats-close')?.addEventListener('click', () => {
+  const modal = $('modal-character-stats');
+  if (modal) modal.close();
+});
+
+// Close stats modal on backdrop click
+$('modal-character-stats')?.addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) {
+    e.currentTarget.close();
+  }
+});
+
+// ---------- Game Screen ----------
+async function refreshGameState() {
+  const [{ data: session }, { data: players }] = await Promise.all([
+    sb.from('sessions').select('*').eq('id', currentSessionId).single(),
+    sb.from('players').select('*').eq('session_id', currentSessionId).order('position_in_turn_order'),
+  ]);
+  if (!session) return;
+  
+  latestSession = session;
+  latestPlayers = players || [];
+  renderGame();
+  
+  if (latestSession.status === 'completed') {
+    sounds.playWin();
+    showEndScreen(latestSession);
+  }
+}
+
+async function refreshChatMessages() {
+  if (!currentSessionId) return;
+  const { data: messages } = await sb.from('messages').select('*')
+    .eq('session_id', currentSessionId).order('created_at', { ascending: true }).limit(200);
+  renderChatMessages(messages || []);
+}
+
+function renderChatMessages(messages) {
+  const box = $('chat-messages');
+  if (!box) return;
+  
+  box.innerHTML = messages.map(m => `
+    <div class="chat-message ${m.user_id === currentUser.uid ? 'own' : ''}">
+      <span class="chat-author">${escapeHtml(m.display_name)}</span>
+      <span class="chat-text">${escapeHtml(m.content)}</span>
+    </div>
+  `).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+$('form-chat')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = $('chat-input');
+  const content = input?.value.trim();
+  if (!content || !currentSessionId) return;
+  
+  input.value = '';
+  sounds.playClick();
+  
+  const { error } = await sb.from('messages').insert({
+    session_id: currentSessionId,
+    user_id: currentUser.uid,
+    display_name: currentCharacter?.name || currentUser.username,
+    content,
+  });
+  if (error) {
+    console.error(error);
+    toast('Could not send message.', 3000, 'error');
+  }
+});
+
+function enterGame(sessionId) {
+  currentSessionId = sessionId;
+  showScreen('screen-game');
+  
+  const codeEl = $('game-session-code');
+  if (codeEl) codeEl.textContent = `🎯 ${sessionId.slice(0, 6).toUpperCase()}`;
+
+  refreshGameState();
+  refreshChatMessages();
+
+  // FIX: Build channel with listeners BEFORE subscribe
+  if (gameChannel) {
+    sb.removeChannel(gameChannel);
+    gameChannel = null;
+  }
+  
+  gameChannel = sb.channel('game-' + sessionId);
+  
+  // Add listeners
+  gameChannel
+    .on('postgres_changes', { 
+      event: '*', 
+      schema: 'public', 
