@@ -874,6 +874,13 @@ body {
   font-size: 0.68rem;
 }
 
+.player-stats-header {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
 .player-stats-grid strong {
   color: var(--text-primary);
   font-weight: 600;

@@ -562,15 +562,24 @@ async function tryResumeFromStorage() {
   enterLobby();
 }
 
-$('btn-char-logout')?.addEventListener('click', () => {
+// Shared by both sign-out buttons (the one on the character-selection
+// screen and the one actually visible in the lobby topbar) — clears
+// everything and drops back to the "enter your name" screen.
+function signOut() {
   teardownSubscriptions();
   currentUser = null;
   currentCharacter = null;
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(CHAR_STORAGE_KEY);
+  localStorage.removeItem(RANDOM_CHAR_STORAGE_KEY);
+  const nameInput = $('name-input');
+  if (nameInput) nameInput.value = '';
   showScreen('screen-auth');
   toast('Signed out successfully');
-});
+}
+
+$('btn-char-logout')?.addEventListener('click', signOut);
+$('btn-logout')?.addEventListener('click', signOut);
 
 // ---------- Character Creation Events ----------
 $('btn-create-character')?.addEventListener('click', () => {
@@ -792,8 +801,20 @@ function createRandomCharacter() {
 async function startTableWithRandomCharacter(sessionId) {
   currentCharacter = createRandomCharacter();
   localStorage.setItem(RANDOM_CHAR_STORAGE_KEY, JSON.stringify(currentCharacter));
+  // Write the whole character to the shared players row (not just the
+  // name) so every other player at the table can see these stats too —
+  // previously this only ever lived in the creating player's own
+  // browser, which is why nobody else could see anyone's character sheet.
   const { error: playerError } = await sb.from('players').update({
     display_name: currentCharacter.name,
+    race: currentCharacter.race,
+    class: currentCharacter.class,
+    strength: currentCharacter.strength,
+    dexterity: currentCharacter.dexterity,
+    constitution: currentCharacter.constitution,
+    intelligence: currentCharacter.intelligence,
+    wisdom: currentCharacter.wisdom,
+    charisma: currentCharacter.charisma,
   }).eq('session_id', sessionId).eq('user_id', currentUser.uid);
   if (playerError) throw playerError;
 
@@ -937,7 +958,10 @@ function renderPlayerStats(character) {
   if (!character) return '<div class="player-stats-empty">Character details unavailable</div>';
 
   const stats = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
-  return `<div class="player-stats-grid">${stats.map(stat => {
+  const header = character.race && character.class
+    ? `<div class="player-stats-header">${escapeHtml(character.race)} · ${escapeHtml(character.class)}</div>`
+    : '';
+  return `${header}<div class="player-stats-grid">${stats.map(stat => {
     const value = character[stat] || 8;
     return `<span>${stat.slice(0, 3).toUpperCase()} <strong>${value}</strong></span>`;
   }).join('')}</div>`;
@@ -1072,8 +1096,21 @@ function renderGame() {
         p.is_alive;
       const pct = Math.max(0, Math.min(100, p.health));
       const color = pct > 55 ? 'var(--health-full)' : pct > 25 ? 'var(--health-mid)' : 'var(--health-low)';
-      const character = p.user_id === currentUser.uid ? currentCharacter : null;
-      const characterName = character?.name || p.display_name;
+      // Character stats live directly on the player row now (race,
+      // class, and the six ability scores), so this works the same
+      // way for every player at the table, not just yourself.
+      const character = {
+        name: p.display_name,
+        race: p.race,
+        class: p.class,
+        strength: p.strength,
+        dexterity: p.dexterity,
+        constitution: p.constitution,
+        intelligence: p.intelligence,
+        wisdom: p.wisdom,
+        charisma: p.charisma,
+      };
+      const characterName = p.display_name;
       
       return `
         <li class="player-item ${isTurn ? 'current-turn' : ''} ${!p.is_alive ? 'eliminated' : ''}" data-user-id="${p.user_id}">
