@@ -1609,3 +1609,31 @@ body.theme-plain *::after {
   color: var(--text-muted);
   font-size: 0.68rem;
 }
+
+.equipment-panel {
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.equipment-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.equipment-item {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-xs) var(--space-sm);
+  background: rgba(209, 138, 75, 0.06);
+  border-left: 2px solid #d18a4b;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.equipment-item small {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}

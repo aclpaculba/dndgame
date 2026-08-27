@@ -353,7 +353,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
       const { error: itemWinError } = await db.from('sessions').update({
         status: 'completed',
         boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: 0,
-        story_narrative: summary, story_choices: [], story_history: newHistory,
+        story_narrative: summary, story_choices: [], story_history: newHistory, vote_state: {},
         updated_at: new Date().toISOString(),
       }).eq('id', sessionId);
       if (itemWinError) {
@@ -368,7 +368,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
       const { error: itemLossError } = await db.from('sessions').update({
         status: 'completed',
         boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: newBossHealth,
-        story_narrative: summary, story_choices: [], story_history: newHistory,
+        story_narrative: summary, story_choices: [], story_history: newHistory, vote_state: {},
         updated_at: new Date().toISOString(),
       }).eq('id', sessionId);
       if (itemLossError) {
@@ -392,6 +392,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
       story_narrative: narrative,
       story_choices: (result.choices ?? []).slice(0, 3),
       story_history: newHistory,
+      vote_state: {},
       updated_at: new Date().toISOString(),
     }).eq('id', sessionId);
     if (itemTurnError) {
@@ -557,6 +558,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       story_narrative: summary,
       story_choices: [],
       story_history: newHistory,
+      vote_state: {},
       updated_at: new Date().toISOString(),
     }).eq('id', sessionId);
     if (winUpdateError) {
@@ -574,6 +576,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       story_narrative: summary,
       story_choices: [],
       story_history: newHistory,
+      vote_state: {},
       updated_at: new Date().toISOString(),
     }).eq('id', sessionId);
     if (lossUpdateError) {
@@ -629,6 +632,7 @@ export async function resetSessionInternal(db: SupabaseClient, sessionId: string
     story_narrative: 'A new tale begins… The ember has been rekindled.',
     story_choices: [],
     story_history: [],
+    vote_state: {},
     updated_at: new Date().toISOString(),
   }).eq('id', sessionId);
 

@@ -776,6 +776,20 @@ function rollStartingInventory(count = 2) {
   return items;
 }
 
+function starterGearForClass(className) {
+  const loadouts = {
+    Fighter: [['Main Hand', 'Longsword', '+1 Attack · 1d8 slashing · STR 10 · Weight 3'], ['Off Hand', 'Wooden Shield', '+2 AC · STR 10 · Weight 5'], ['Armor', 'Chainmail', '+4 AC · -1 DEX · STR 10 · Weight 15']],
+    Paladin: [['Main Hand', 'Mace', '+1 Attack · 1d6 bludgeoning · STR 10 · Weight 4'], ['Off Hand', 'Wooden Shield', '+2 AC · STR 10 · Weight 5'], ['Armor', 'Chainmail', '+4 AC · -1 DEX · STR 10 · Weight 15']],
+    Rogue: [['Main Hand', 'Dagger', '+2 Attack · 1d4 piercing · DEX 8 · Weight 1'], ['Off Hand', 'Shortbow', '+2 Attack · 1d6 ranged · DEX 10 · Weight 2'], ['Armor', 'Leather Armor', '+2 AC · DEX 8 · Weight 5']],
+    Wizard: [['Main Hand', 'Long Staff', '0 Attack · 1d4 · INT 10 · Spell focus · Weight 2'], ['Ring 1', 'Ring of Protection', '+1 AC · Weight 0'], ['Armor', 'Leather Armor', '+2 AC · DEX 8 · Weight 5']],
+    Ranger: [['Main Hand', 'Longbow', '+1 Attack · 1d8 ranged · DEX 12 · Weight 3'], ['Off Hand', 'Short Sword', '+1 Attack · 1d6 versatile · STR 8 · Weight 2'], ['Armor', 'Leather Armor', '+2 AC · DEX 8 · Weight 5']],
+    Cleric: [['Main Hand', 'Mace', '+1 Attack · 1d6 bludgeoning · STR 10 · Weight 4'], ['Off Hand', 'Wooden Shield', '+2 AC · STR 10 · Weight 5'], ['Armor', 'Chainmail', '+4 AC · -1 DEX · STR 10 · Weight 15']],
+    Bard: [['Main Hand', 'Shortsword', '+1 Attack · 1d6 versatile · STR 8 · Weight 2'], ['Armor', 'Leather Armor', '+2 AC · DEX 8 · Weight 5'], ['Ring 1', 'Gold Ring', '+1 Persuasion · Value 100 souls · Weight 0']],
+    Druid: [['Main Hand', 'Long Staff', '0 Attack · 1d4 · INT 10 · Spell focus · Weight 2'], ['Armor', 'Leather Armor', '+2 AC · DEX 8 · Weight 5'], ['Ring 1', 'Holy Amulet', '+2 healing · Weight 0']]
+  };
+  return (loadouts[className] || loadouts.Fighter).map(([slot, name, specification], index) => ({ slot, name, specification, type: 'gear', id: `gear-${className}-${index}` }));
+}
+
 // The character's race/class/stats/background are randomized for
 // flavor, but the character's name always matches the username the
 // player signed in with — that's their identity at the table, not a
@@ -807,7 +821,7 @@ function createRandomCharacter() {
     ideal: '',
     bond: '',
     flaw: '',
-    inventory: rollStartingInventory(2),
+    inventory: [...starterGearForClass(chosenClass), ...rollStartingInventory(2)],
   };
 }
 
@@ -1293,6 +1307,7 @@ function renderGame() {
 
   // Choices
   const isMyTurn = currentTurnUid === currentUser.uid && latestSession.status === 'active';
+  const canVote = latestPlayers.some(player => player.user_id === currentUser.uid && player.is_alive);
   const choicesEl = $('choices');
   
   if (choicesEl) {
@@ -1303,7 +1318,7 @@ function renderGame() {
       choicesEl.innerHTML = '';
     } else {
       choicesEl.innerHTML = choices.map((c, i) => `
-        <button class="choice-btn" data-choice="${i}" ${isMyTurn ? '' : 'disabled'}>
+        <button class="choice-btn" data-choice="${i}" ${canVote ? '' : 'disabled'}>
           ${escapeHtml(c)}
         </button>
       `).join('');
@@ -1320,9 +1335,9 @@ function renderGame() {
   // Status
   const statusEl = $('story-status');
   if (statusEl) {
-    statusEl.textContent = isStuck 
-      ? '' 
-      : (isMyTurn ? '' : (latestSession.status === 'active' ? 'Only the active player can choose.' : ''));
+    const votes = latestSession.vote_state || {};
+    const voteCount = Object.keys(votes).length;
+    statusEl.textContent = isStuck ? '' : (latestSession.status === 'active' ? `Party vote: ${voteCount}/${latestPlayers.filter(player => player.is_alive).length} votes cast.` : '');
   }
 
   // Inventory — only shown to the acting player, on their own turn,
@@ -1336,7 +1351,13 @@ function renderGame() {
     const showInventory = isMyTurn && !isStuck && myInventory.length > 0;
     inventoryPanel.classList.toggle('hidden', !showInventory);
     if (showInventory) {
-      inventoryList.innerHTML = myInventory.map(item => `
+      const equipmentList = $('equipment-list');
+      const equipment = myInventory.filter(item => item.type === 'gear');
+      const consumables = myInventory.filter(item => item.type !== 'gear');
+      if (equipmentList) equipmentList.innerHTML = equipment.length ? equipment.map(item => `
+        <div class="equipment-item"><span>[${escapeHtml(item.slot)}] ${escapeHtml(item.name)}</span><small>${escapeHtml(item.specification)}</small></div>
+      `).join('') : '<div class="player-stats-empty">No equipped gear</div>';
+      inventoryList.innerHTML = consumables.map(item => `
         <div class="inventory-item">
           <div class="item-info">
             <span class="item-name">${escapeHtml(item.name)}</span>
@@ -1344,7 +1365,7 @@ function renderGame() {
           </div>
           <button class="btn btn-secondary btn-sm" data-use-item="${escapeHtml(item.id)}">Use</button>
         </div>
-      `).join('');
+      `).join('') || '<div class="player-stats-empty">No consumables</div>';
       inventoryList.querySelectorAll('[data-use-item]').forEach(btn => {
         btn.addEventListener('click', () => {
           sounds.playClick();
@@ -1382,15 +1403,26 @@ async function useItem(itemId) {
 // ---------- Submit Choice ----------
 async function submitChoice(choiceIndex) {
   const choicesEl = $('choices');
-  if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
-  
   const statusEl = $('story-status');
-  if (statusEl) statusEl.textContent = 'The storyteller is weaving…';
-  
+  const votes = { ...(latestSession.vote_state || {}), [currentUser.uid]: choiceIndex };
+  const alivePlayers = latestPlayers.filter(player => player.is_alive);
+  const voteCounts = choicesEl ? [...choicesEl.querySelectorAll('[data-choice]')].map(() => 0) : [];
+  Object.values(votes).forEach(vote => { if (voteCounts[vote] !== undefined) voteCounts[vote] += 1; });
+  const winner = voteCounts.indexOf(Math.max(...voteCounts));
+  latestSession.vote_state = votes;
+  renderGame();
+  const { error: voteError } = await sb.from('sessions').update({ vote_state: votes }).eq('id', currentSessionId);
+  if (voteError) {
+    if (statusEl) statusEl.textContent = 'Could not record the party vote.';
+    toast('Vote failed: ' + voteError.message, 4000, 'error');
+    return;
+  }
+  if (Object.keys(votes).length < alivePlayers.length) return;
+  if (statusEl) statusEl.textContent = 'The party has agreed. The storyteller is weaving…';
+  if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
   const { data, error } = await sb.functions.invoke('generate-story', {
-    body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
+    body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex: winner },
   });
-  
   if (error) {
     console.error('submitChoice failed:', error);
     if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
