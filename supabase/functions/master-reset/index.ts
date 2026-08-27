@@ -1,6 +1,11 @@
 import { corsHeaders } from '../_shared/cors.ts';
 import { adminClient, requireUser, resetSessionInternal } from '../_shared/game.ts';
 
+declare const Deno: {
+  serve(handler: (req: Request) => Response | Promise<Response>): void;
+  env: { get(name: string): string | undefined };
+};
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
