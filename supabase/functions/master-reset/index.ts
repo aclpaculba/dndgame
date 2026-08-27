@@ -1,27 +1,99 @@
 import { corsHeaders } from '../_shared/cors.ts';
-import { adminClient, requireUser, resetSessionInternal } from '../_shared/game.ts';
-
-declare const Deno: {
-  serve(handler: (req: Request) => Response | Promise<Response>): void;
-  env: { get(name: string): string | undefined };
-};
+import { adminClient, requireUser } from '../_shared/game.ts';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   try {
-    const { sessionId, userId } = await req.json();
+    const { sessionId, userId, password } = await req.json();
     if (!sessionId) throw new Error('sessionId is required.');
+    if (!userId) throw new Error('userId is required.');
 
     const db = adminClient();
+
+    // Verify the user exists
     await requireUser(db, userId);
 
-    const apiKey = Deno.env.get('GEMINI_API_KEY')!;
-    await resetSessionInternal(db, sessionId, apiKey);
+    // Verify the admin password
+    const adminPassword = Deno.env.get('ADMIN_PASSWORD');
+    if (!adminPassword) {
+      throw new Error('ADMIN_PASSWORD environment variable not set.');
+    }
+    if (!password || password !== adminPassword) {
+      throw new Error('Incorrect master password.');
+    }
 
-    return new Response(JSON.stringify({ ok: true }), {
+    console.log(`✅ Master reset initiated for session: ${sessionId} by user: ${userId}`);
+
+    // ============================================================
+    // STEP 1: Delete all players in the session
+    // ============================================================
+    const { error: deletePlayersError } = await db
+      .from('players')
+      .delete()
+      .eq('session_id', sessionId);
+    
+    if (deletePlayersError) {
+      console.error('Failed to delete players:', deletePlayersError);
+      throw new Error('Failed to clear players: ' + deletePlayersError.message);
+    }
+
+    // ============================================================
+    // STEP 2: Delete all messages in the session
+    // ============================================================
+    const { error: deleteMessagesError } = await db
+      .from('messages')
+      .delete()
+      .eq('session_id', sessionId);
+    
+    if (deleteMessagesError) {
+      console.error('Failed to delete messages:', deleteMessagesError);
+      // Don't throw here - messages are non-critical
+    }
+
+    // ============================================================
+    // STEP 3: Reset the session to a clean state
+    // ============================================================
+    const { error: updateSessionError } = await db
+      .from('sessions')
+      .update({
+        status: 'active',
+        current_turn_index: 0,
+        turn_order: [],
+        story_narrative: 'A new tale begins… The ember has been rekindled.',
+        story_choices: [],
+        story_history: [],
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sessionId);
+    
+    if (updateSessionError) {
+      console.error('Failed to reset session:', updateSessionError);
+      throw new Error('Failed to reset session: ' + updateSessionError.message);
+    }
+
+    // ============================================================
+    // STEP 4: Clear active_session_id from all profiles that were in this session
+    // ============================================================
+    const { error: clearProfilesError } = await db
+      .from('profiles')
+      .update({ active_session_id: null })
+      .eq('active_session_id', sessionId);
+    
+    if (clearProfilesError) {
+      console.error('Failed to clear profiles:', clearProfilesError);
+      // Don't throw - this is cleanup
+    }
+
+    console.log(`✅ Master reset completed for session: ${sessionId}`);
+
+    return new Response(JSON.stringify({ 
+      ok: true, 
+      message: 'Session has been completely wiped and reset.' 
+    }), {
       headers: { ...corsHeaders, 'content-type': 'application/json' },
     });
   } catch (err) {
+    console.error('Master reset error:', err);
     return new Response(JSON.stringify({ error: String(err.message || err) }), {
       status: 400,
       headers: { ...corsHeaders, 'content-type': 'application/json' },
