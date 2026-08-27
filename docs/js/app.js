@@ -759,6 +759,24 @@ function enterLobby() {
 }
 
 // ---------- Session Management ----------
+// Same item pool and shape as supabase/functions/_shared/game.ts —
+// kept in sync manually since the client can't import that module.
+const ITEM_POOL = [
+  { name: 'Healing Potion', type: 'heal', value: 20, description: 'Restores 20 health.' },
+  { name: 'Field Rations', type: 'heal', value: 10, description: 'Restores 10 health.' },
+  { name: 'Warhorn', type: 'damage_boss', value: 15, description: 'Deals 15 damage to the boss.' },
+  { name: "Alchemist's Fire", type: 'damage_boss', value: 10, selfDamage: 5, description: 'Deals 10 damage to the boss, but 5 to you.' },
+];
+
+function rollStartingInventory(count = 2) {
+  const items = [];
+  for (let i = 0; i < count; i++) {
+    const template = ITEM_POOL[Math.floor(Math.random() * ITEM_POOL.length)];
+    items.push({ ...template, id: `${Date.now()}-${i}-${Math.floor(Math.random() * 100000)}` });
+  }
+  return items;
+}
+
 // The character's race/class/stats/background are randomized for
 // flavor, but the character's name always matches the username the
 // player signed in with — that's their identity at the table, not a
@@ -794,11 +812,12 @@ function createRandomCharacter() {
     personality: '',
     ideal: '',
     bond: '',
-    flaw: ''
+    flaw: '',
+    inventory: rollStartingInventory(2),
   };
 }
 
-async function startTableWithRandomCharacter(sessionId) {
+async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true } = {}) {
   currentCharacter = createRandomCharacter();
   localStorage.setItem(RANDOM_CHAR_STORAGE_KEY, JSON.stringify(currentCharacter));
   // Write the whole character to the shared players row (not just the
@@ -815,8 +834,20 @@ async function startTableWithRandomCharacter(sessionId) {
     intelligence: currentCharacter.intelligence,
     wisdom: currentCharacter.wisdom,
     charisma: currentCharacter.charisma,
+    inventory: currentCharacter.inventory,
   }).eq('session_id', sessionId).eq('user_id', currentUser.uid);
   if (playerError) throw playerError;
+
+  // Only the table's creator should ever trigger kickoff. If every
+  // joiner also called this, several kickoff calls could race each
+  // other right as a table filled up, and a late one that still saw
+  // an empty story history would reset the boss back to full health
+  // even after real combat turns had already landed — this is what
+  // was actually causing the boss bar to silently snap back to 100%.
+  if (!triggerKickoff) {
+    await refreshGameState();
+    return;
+  }
 
   const { data: kickoffData, error: kickoffError } = await sb.functions.invoke('generate-story', {
     body: { sessionId, userId: currentUser.uid, kickoff: true },
@@ -894,7 +925,7 @@ async function joinSession(sessionId) {
     currentUser.activeSessionId = sessionId;
     
     enterGame(sessionId);
-    await startTableWithRandomCharacter(sessionId);
+    await startTableWithRandomCharacter(sessionId, { triggerKickoff: false });
   } catch (err) {
     console.error(err);
     if (err.message?.includes('players_pkey') || err.code === '23505') {
@@ -1087,6 +1118,22 @@ async function retryKickoff() {
 function renderGame() {
   if (!latestSession) return;
 
+  // Boss Health Bar
+  const bossNameEl = $('boss-name');
+  const bossHealthNumEl = $('boss-health-num');
+  const bossHealthFillEl = $('boss-health-fill');
+  if (bossNameEl && bossHealthNumEl && bossHealthFillEl) {
+    const bossMax = latestSession.boss_max_health || 100;
+    const bossHealth = Math.max(0, Math.min(bossMax, latestSession.boss_health ?? bossMax));
+    const bossPct = bossMax > 0 ? Math.round((bossHealth / bossMax) * 100) : 0;
+    bossNameEl.textContent = latestSession.boss_name || 'The Nameless Dread';
+    bossHealthNumEl.textContent = `${bossHealth} / ${bossMax}`;
+    bossHealthFillEl.style.width = `${bossPct}%`;
+    bossHealthFillEl.style.background = bossHealth <= 0
+      ? 'var(--text-muted)'
+      : (bossPct <= 25 ? 'linear-gradient(135deg, #636e72, #2d3436)' : 'linear-gradient(135deg, #e17055, #d63031)');
+  }
+
   // Player List
   const list = $('player-list');
   if (list) {
@@ -1199,7 +1246,58 @@ function renderGame() {
       : (isMyTurn ? '' : (latestSession.status === 'active' ? 'Only the active player can choose.' : ''));
   }
 
+  // Inventory — only shown to the acting player, on their own turn,
+  // so items can only ever be used as your one action for the turn
+  // (same rule as picking a story choice).
+  const inventoryPanel = $('inventory-panel');
+  const inventoryList = $('inventory-list');
+  if (inventoryPanel && inventoryList) {
+    const myPlayer = latestPlayers.find(p => p.user_id === currentUser.uid);
+    const myInventory = myPlayer && Array.isArray(myPlayer.inventory) ? myPlayer.inventory : [];
+    const showInventory = isMyTurn && !isStuck && myInventory.length > 0;
+    inventoryPanel.classList.toggle('hidden', !showInventory);
+    if (showInventory) {
+      inventoryList.innerHTML = myInventory.map(item => `
+        <div class="inventory-item">
+          <div class="item-info">
+            <span class="item-name">${escapeHtml(item.name)}</span>
+            <span class="item-description">${escapeHtml(item.description || '')}</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" data-use-item="${escapeHtml(item.id)}">Use</button>
+        </div>
+      `).join('');
+      inventoryList.querySelectorAll('[data-use-item]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          sounds.playClick();
+          useItem(btn.dataset.useItem);
+        });
+      });
+    }
+  }
+
   renderStoryLog();
+}
+
+// ---------- Use Item ----------
+async function useItem(itemId) {
+  const choicesEl = $('choices');
+  const inventoryList = $('inventory-list');
+  if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
+  if (inventoryList) inventoryList.querySelectorAll('button').forEach(b => b.disabled = true);
+
+  const statusEl = $('story-status');
+  if (statusEl) statusEl.textContent = 'Using item…';
+
+  const { data, error } = await sb.functions.invoke('generate-story', {
+    body: { sessionId: currentSessionId, userId: currentUser.uid, itemId },
+  });
+
+  if (error) {
+    const message = await extractFunctionError(error, data);
+    console.error('useItem failed:', message, error);
+    if (statusEl) statusEl.textContent = 'Could not use that item — please try again.';
+    toast('Item use failed: ' + message, 4000, 'error');
+  }
 }
 
 // ---------- Submit Choice ----------
@@ -1240,9 +1338,11 @@ function renderStoryLog() {
       ? (h.impact < 0 ? ` — lost ${Math.abs(h.impact)} HP` : h.impact > 0 ? ` — recovered ${h.impact} HP` : ' — unscathed')
       : '';
     const rollText = h.roll ? ` <span class="log-roll">d20: ${escapeHtml(h.roll)}${h.rollLabel ? ` · ${escapeHtml(h.rollLabel)}` : ''}</span>` : '';
+    const lootText = h.loot ? `<div class="log-loot">Found: ${escapeHtml(h.loot)}</div>` : '';
     return `<li class="log-item">
       <div class="log-player">${escapeHtml(h.player)}${impactText}${rollText}</div>
       ${h.choice ? `<div class="log-choice">"${escapeHtml(h.choice)}"</div>` : ''}
+      ${lootText}
     </li>`;
   }).join('');
 }

@@ -248,9 +248,9 @@ export async function generateOne(
   // once the story has actually started.
   const isFreshKickoff = !!kickoff && history.length === 0;
 
-  let bossName: string = session.boss_name;
-  let bossMaxHealth: number = session.boss_max_health;
-  let bossHealth: number = session.boss_health;
+  let bossName: string = session.boss_name || 'The Nameless Dread';
+  let bossMaxHealth: number = Number(session.boss_max_health) || 100;
+  let bossHealth: number = Number(session.boss_health) || bossMaxHealth;
   if (isFreshKickoff) {
     bossName = BOSS_NAMES[Math.floor(Math.random() * BOSS_NAMES.length)];
     bossMaxHealth = bossMaxHealthFor(players.length);
@@ -284,8 +284,12 @@ export async function generateOne(
     const isAlive = newHealth > 0;
     const remainingInventory = inventory.filter((it) => it.id !== itemId);
 
-    await db.from('players').update({ health: newHealth, is_alive: isAlive, inventory: remainingInventory })
+    const { error: itemPlayerUpdateError } = await db.from('players').update({ health: newHealth, is_alive: isAlive, inventory: remainingInventory })
       .eq('session_id', sessionId).eq('user_id', actingUid);
+    if (itemPlayerUpdateError) {
+      console.error('[db] Failed to update player after item use:', JSON.stringify(itemPlayerUpdateError));
+      throw new Error('Could not save item effect: ' + itemPlayerUpdateError.message);
+    }
 
     const newBossHealth = Math.max(0, Math.min(bossMaxHealth, bossHealth + bossHealthDelta));
 
@@ -328,24 +332,32 @@ Narrate this moment vividly, then give the next three choices for whichever play
 
     if (newBossHealth <= 0) {
       const summary = `${narrative}\n\n${bossName} finally falls. The table has won the night.`;
-      await db.from('sessions').update({
+      const { error: itemWinError } = await db.from('sessions').update({
         status: 'completed',
         boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: 0,
         story_narrative: summary, story_choices: [], story_history: newHistory,
         updated_at: new Date().toISOString(),
       }).eq('id', sessionId);
+      if (itemWinError) {
+        console.error('[db] Failed to save boss-defeated update (item use):', JSON.stringify(itemWinError));
+        throw new Error('Could not save the session after defeating the boss: ' + itemWinError.message);
+      }
       return;
     }
 
     if (aliveCount <= 1) {
       const winner = updatedPlayers.find((p: any) => p.is_alive);
       const summary = `${narrative}\n\n${winner ? `${winner.display_name} is the last signal still active.` : 'No one survived the night.'}`;
-      await db.from('sessions').update({
+      const { error: itemLossError } = await db.from('sessions').update({
         status: 'completed',
         boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: newBossHealth,
         story_narrative: summary, story_choices: [], story_history: newHistory,
         updated_at: new Date().toISOString(),
       }).eq('id', sessionId);
+      if (itemLossError) {
+        console.error('[db] Failed to save session-ended update (item use):', JSON.stringify(itemLossError));
+        throw new Error('Could not save the session ending: ' + itemLossError.message);
+      }
       return;
     }
 
@@ -357,7 +369,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
       if (p && p.is_alive) break;
     }
 
-    await db.from('sessions').update({
+    const { error: itemTurnError } = await db.from('sessions').update({
       current_turn_index: nextIndex,
       boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: newBossHealth,
       story_narrative: narrative,
@@ -365,6 +377,10 @@ Narrate this moment vividly, then give the next three choices for whichever play
       story_history: newHistory,
       updated_at: new Date().toISOString(),
     }).eq('id', sessionId);
+    if (itemTurnError) {
+      console.error('[db] Failed to save turn update after item use:', JSON.stringify(itemTurnError));
+      throw new Error('Could not save the story update: ' + itemTurnError.message);
+    }
     return;
   }
 
@@ -425,6 +441,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
 
     const baseBossImpact = Math.max(-30, Math.min(10, Math.round(result.bossImpact || 0)));
     appliedBossImpact = applyRollToBossImpact(baseBossImpact, roll);
+    console.log(`[boss] before=${bossHealth}/${bossMaxHealth} model_bossImpact=${result.bossImpact} baseBossImpact=${baseBossImpact} roll=${roll.roll} isCritFail=${roll.isCritFail} isCritSuccess=${roll.isCritSuccess} appliedBossImpact=${appliedBossImpact}`);
 
     const newHealth = Math.max(0, Math.min(100, actingPlayer.health + appliedImpact));
     const isAlive = newHealth > 0;
@@ -441,8 +458,12 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     const currentInventory: any[] = Array.isArray(actingPlayer.inventory) ? actingPlayer.inventory : [];
     const newInventory = lootedItem ? [...currentInventory, lootedItem] : currentInventory;
 
-    await db.from('players').update({ health: newHealth, is_alive: isAlive, inventory: newInventory })
+    const { error: playerUpdateError } = await db.from('players').update({ health: newHealth, is_alive: isAlive, inventory: newInventory })
       .eq('session_id', sessionId).eq('user_id', actingUid);
+    if (playerUpdateError) {
+      console.error('[db] Failed to update acting player:', JSON.stringify(playerUpdateError));
+      throw new Error('Could not save the acting player\'s new health/inventory: ' + playerUpdateError.message);
+    }
 
     updatedPlayers = players.map((p: any) =>
       p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, inventory: newInventory } : p);
@@ -452,14 +473,18 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       for (const other of others) {
         const otherHealth = Math.max(0, Math.min(100, other.health + roll.partyImpact));
         const otherAlive = otherHealth > 0;
-        await db.from('players').update({ health: otherHealth, is_alive: otherAlive })
+        const { error: otherUpdateError } = await db.from('players').update({ health: otherHealth, is_alive: otherAlive })
           .eq('session_id', sessionId).eq('user_id', other.user_id);
+        if (otherUpdateError) {
+          console.error('[db] Failed to update party-splash player:', JSON.stringify(otherUpdateError));
+        }
         updatedPlayers = updatedPlayers.map((p: any) =>
           p.user_id === other.user_id ? { ...p, health: otherHealth, is_alive: otherAlive } : p);
       }
     }
 
     bossHealth = Math.max(0, Math.min(bossMaxHealth, bossHealth + appliedBossImpact));
+    console.log(`[boss] after=${bossHealth}/${bossMaxHealth}`);
 
     const lines = [
       narrative.trim(),
@@ -490,7 +515,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
 
   if (!kickoff && bossHealth <= 0) {
     const summary = `${narrative}\n\n${bossName} finally falls. The table has won the night.`;
-    await db.from('sessions').update({
+    const { error: winUpdateError } = await db.from('sessions').update({
       status: 'completed',
       boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: 0,
       story_narrative: summary,
@@ -498,13 +523,17 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       story_history: newHistory,
       updated_at: new Date().toISOString(),
     }).eq('id', sessionId);
+    if (winUpdateError) {
+      console.error('[db] Failed to save boss-defeated session update:', JSON.stringify(winUpdateError));
+      throw new Error('Could not save the session after defeating the boss: ' + winUpdateError.message);
+    }
     return;
   }
 
   if (!kickoff && aliveCount <= 1) {
     const winner = updatedPlayers.find((p: any) => p.is_alive);
     const summary = `${narrative}\n\n${winner ? `${winner.display_name} is the last signal still active.` : 'No one survived the night.'}`;
-    await db.from('sessions').update({
+    const { error: lossUpdateError } = await db.from('sessions').update({
       status: 'completed',
       boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: bossHealth,
       story_narrative: summary,
@@ -512,6 +541,10 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       story_history: newHistory,
       updated_at: new Date().toISOString(),
     }).eq('id', sessionId);
+    if (lossUpdateError) {
+      console.error('[db] Failed to save session-ended update:', JSON.stringify(lossUpdateError));
+      throw new Error('Could not save the session ending: ' + lossUpdateError.message);
+    }
     return;
   }
 
@@ -525,7 +558,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     }
   }
 
-  await db.from('sessions').update({
+  const { error: turnUpdateError } = await db.from('sessions').update({
     current_turn_index: nextIndex,
     boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: bossHealth,
     story_narrative: narrative,
@@ -533,6 +566,10 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     story_history: newHistory,
     updated_at: new Date().toISOString(),
   }).eq('id', sessionId);
+  if (turnUpdateError) {
+    console.error('[db] Failed to save turn update:', JSON.stringify(turnUpdateError), 'payload boss_health=', bossHealth, 'boss_max_health=', bossMaxHealth);
+    throw new Error('Could not save the story update: ' + turnUpdateError.message);
+  }
 }
 
 export async function resetSessionInternal(db: SupabaseClient, sessionId: string, apiKey?: string) {
