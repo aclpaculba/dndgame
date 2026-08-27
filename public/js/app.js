@@ -624,7 +624,8 @@ $('form-character-creation')?.addEventListener('submit', async (e) => {
     body: { userId: currentUser.uid },
   });
   if (classResponse.error) {
-    toast('The storyteller could not choose a hero. Please try again.', 3000, 'error');
+    const message = await extractFunctionError(classResponse.error, classResponse.data);
+    toast(`Hero creation failed: ${message}`, 5000, 'error');
     return;
   }
 
@@ -660,9 +661,13 @@ $('form-character-creation')?.addEventListener('submit', async (e) => {
 
   const sessionId = pendingTableStartSessionId;
   pendingTableStartSessionId = null;
-  await sb.functions.invoke('generate-story', {
+  const { data: kickoffData, error: kickoffError } = await sb.functions.invoke('generate-story', {
     body: { sessionId, userId: currentUser.uid, kickoff: true },
   });
+  if (kickoffError) {
+    const message = await extractFunctionError(kickoffError, kickoffData);
+    toast(`Story kickoff failed: ${message}`, 5000, 'error');
+  }
   await refreshGameState();
 });
 
@@ -1001,8 +1006,9 @@ async function retryKickoff() {
   });
   
   if (error) {
-    console.error('Retry kickoff failed:', error);
-    toast('Still failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+    const message = await extractFunctionError(error, data);
+    console.error('Retry kickoff failed:', message, error);
+    toast('Story kickoff failed: ' + message, 5000, 'error');
     if (btn) {
       btn.disabled = false;
       btn.textContent = '🔥 Start the tale';
