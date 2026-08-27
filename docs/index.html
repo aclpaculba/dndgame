@@ -365,26 +365,18 @@
     </div>
   </section>
 
-  <!-- ================= MASTER RESET MODAL ================= -->
+  <!-- ================= MASTER RESET MODAL (NO PASSWORD) ================= -->
   <dialog id="modal-reset" class="modal" role="dialog" aria-labelledby="modal-title">
     <div class="modal-card glass-card">
       <h3 id="modal-title">⚠️ Master Reset</h3>
       <p class="text-secondary" style="margin-bottom: var(--space-md);">
-        This wipes the current session — all health, story, and turn order.
-        Enter the master password to confirm.
+        This wipes the current session — all players, health, story, and turn order.
+        Are you sure you want to continue?
       </p>
-      <input 
-        type="password" 
-        id="reset-password" 
-        class="input-modern" 
-        placeholder="Enter master password"
-        aria-label="Master password"
-        autocomplete="off"
-      />
       <p class="form-error" id="reset-error" role="alert"></p>
       <div class="modal-actions" style="display: flex; gap: var(--space-sm); margin-top: var(--space-md);">
         <button id="btn-reset-cancel" class="btn btn-ghost">Cancel</button>
-        <button id="btn-reset-confirm" class="btn btn-danger">Reset Session</button>
+        <button id="btn-reset-confirm" class="btn btn-danger">Yes, Reset Session</button>
       </div>
     </div>
   </dialog>

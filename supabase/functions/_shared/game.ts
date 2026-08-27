@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.46.0';
 import { callStoryteller } from './gemini.ts';
 
 const SYSTEM_PROMPT = `You are the game master for "Last Ember", a dark-fantasy, turn-based survival game.
@@ -10,10 +10,24 @@ You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching
 - "healthImpact" is your baseline suggestion, an integer between -35 and 15 (negative = damage, positive = healing/relief) — the engine randomizes around this, so vary it honestly based on how risky the choice was.
 - "choices" are exactly three distinct, contextually relevant options for the NEXT player's turn, each under 90 characters, written as second-person actions.`;
 
+function getRuntimeEnv(name: string): string {
+  const denoEnv = (globalThis as any).Deno?.env;
+  if (denoEnv && typeof denoEnv.get === 'function') {
+    return denoEnv.get(name) ?? '';
+  }
+
+  const nodeEnv = (globalThis as any).process?.env;
+  if (nodeEnv && typeof nodeEnv[name] === 'string') {
+    return nodeEnv[name];
+  }
+
+  return '';
+}
+
 export function adminClient(): SupabaseClient {
   return createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    getRuntimeEnv('SUPABASE_URL'),
+    getRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY'),
   );
 }
 

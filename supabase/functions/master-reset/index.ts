@@ -1,12 +1,20 @@
 import { corsHeaders } from '../_shared/cors.ts';
 import { adminClient, requireUser } from '../_shared/game.ts';
 
-supabase secrets set ADMIN_PASSWORD=password
+declare const Deno: {
+  serve: (handler: (req: Request) => Promise<Response> | Response) => void;
+};
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+  
   try {
-    const { sessionId, userId, password } = await req.json();
+    const { sessionId, userId } = await req.json();
+    
+    // Validate input
     if (!sessionId) throw new Error('sessionId is required.');
     if (!userId) throw new Error('userId is required.');
 
@@ -14,15 +22,6 @@ Deno.serve(async (req) => {
 
     // Verify the user exists
     await requireUser(db, userId);
-
-    // Verify the admin password
-    const adminPassword = Deno.env.get('ADMIN_PASSWORD');
-    if (!adminPassword) {
-      throw new Error('ADMIN_PASSWORD environment variable not set.');
-    }
-    if (!password || password !== adminPassword) {
-      throw new Error('Incorrect master password.');
-    }
 
     console.log(`✅ Master reset initiated for session: ${sessionId} by user: ${userId}`);
 
@@ -38,6 +37,7 @@ Deno.serve(async (req) => {
       console.error('Failed to delete players:', deletePlayersError);
       throw new Error('Failed to clear players: ' + deletePlayersError.message);
     }
+    console.log(`✅ Deleted players for session: ${sessionId}`);
 
     // ============================================================
     // STEP 2: Delete all messages in the session
@@ -49,7 +49,9 @@ Deno.serve(async (req) => {
     
     if (deleteMessagesError) {
       console.error('Failed to delete messages:', deleteMessagesError);
-      // Don't throw here - messages are non-critical
+      // Don't throw - messages are non-critical
+    } else {
+      console.log(`✅ Deleted messages for session: ${sessionId}`);
     }
 
     // ============================================================
@@ -72,6 +74,7 @@ Deno.serve(async (req) => {
       console.error('Failed to reset session:', updateSessionError);
       throw new Error('Failed to reset session: ' + updateSessionError.message);
     }
+    console.log(`✅ Reset session: ${sessionId}`);
 
     // ============================================================
     // STEP 4: Clear active_session_id from all profiles that were in this session
@@ -84,6 +87,8 @@ Deno.serve(async (req) => {
     if (clearProfilesError) {
       console.error('Failed to clear profiles:', clearProfilesError);
       // Don't throw - this is cleanup
+    } else {
+      console.log(`✅ Cleared active_session_id from profiles for session: ${sessionId}`);
     }
 
     console.log(`✅ Master reset completed for session: ${sessionId}`);
@@ -94,9 +99,12 @@ Deno.serve(async (req) => {
     }), {
       headers: { ...corsHeaders, 'content-type': 'application/json' },
     });
+    
   } catch (err) {
     console.error('Master reset error:', err);
-    return new Response(JSON.stringify({ error: String(err.message || err) }), {
+    return new Response(JSON.stringify({ 
+      error: err instanceof Error ? err.message : String(err)
+    }), {
       status: 400,
       headers: { ...corsHeaders, 'content-type': 'application/json' },
     });
