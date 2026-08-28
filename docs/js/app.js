@@ -1367,8 +1367,8 @@ async function retryKickoff() {
 function renderGame() {
   if (!latestSession) return;
   renderAshenMap();
+  updatePixelScene(); 
   renderHallOfDead();
-  updateLastAction();
 
   // Rooms 0 (Ash) and 3 (Shrine) in the cycle are safe zones — kept
   // in sync with the safeZone flags on ROOMS in
@@ -1415,17 +1415,6 @@ function renderGame() {
       ? 'var(--text-muted)'
       : (bossPct <= 25 ? 'linear-gradient(135deg, #636e72, #2d3436)' : 'linear-gradient(135deg, #e17055, #d63031)');
   }
-// ---------- Last Action + Replay ----------
-function updateLastAction() {
-  const container = $('last-action-container');
-  if (!container || !latestSession) return;
-  
-  const history = latestSession.story_history || [];
-  if (history.length === 0) {
-    container.classList.add('hidden');
-    return;
-  }
-  
   const last = history[history.length - 1];
   container.classList.remove('hidden', 'replaying');
   
@@ -1472,6 +1461,215 @@ function updateLastAction() {
       outcome = outcome + (outcome ? ' — ' : '') + `📦 Found: ${last.loot}`;
     }
     outcomeEl.textContent = outcome || 'The action was taken.';
+  }
+}
+// ---------- AI Image Generation ----------
+let isGeneratingImage = false;
+let lastImagePrompt = '';
+
+async function generateSceneImage(sceneData) {
+  if (isGeneratingImage) return;
+  
+  const container = $('pixel-scene');
+  const loadingEl = $('pixel-loading');
+  const imageEl = $('pixel-image');
+  const canvasEl = $('pixel-canvas');
+  
+  if (!container || !sceneData) return;
+  
+  // Show loading
+  if (loadingEl) loadingEl.classList.remove('hidden');
+  if (imageEl) imageEl.classList.add('hidden');
+  
+  isGeneratingImage = true;
+  
+  try {
+    // Build the prompt from scene data
+    const prompt = buildImagePrompt(sceneData);
+    
+    // Don't regenerate if same as last
+    if (prompt === lastImagePrompt && imageEl && !imageEl.classList.contains('hidden')) {
+      if (loadingEl) loadingEl.classList.add('hidden');
+      isGeneratingImage = false;
+      return;
+    }
+    
+    lastImagePrompt = prompt;
+    
+    // Call the Edge Function
+    const { data, error } = await sb.functions.invoke('generate-image', {
+      body: { 
+        prompt: prompt,  // This is the visual prompt
+        location: sceneData.location,
+        action: sceneData.action,
+        mood: sceneData.mood,
+      }
+    });
+    
+    if (error) throw error;
+    
+    if (data.imageUrl) {
+      // Display the generated image
+      if (imageEl) {
+        imageEl.src = data.imageUrl;
+        imageEl.classList.remove('hidden');
+        imageEl.style.opacity = '0';
+        await new Promise(resolve => setTimeout(resolve, 50));
+        imageEl.style.opacity = '1';
+      }
+      if (canvasEl) canvasEl.classList.add('hidden');
+      
+    } else if (data.placeholder) {
+      // Use fallback pixel renderer
+      if (canvasEl) {
+        canvasEl.classList.remove('hidden');
+        renderFallbackPixelScene(canvasEl, sceneData);
+      }
+      if (imageEl) imageEl.classList.add('hidden');
+      
+    } else {
+      throw new Error('No image generated');
+    }
+    
+  } catch (error) {
+    console.warn('Image generation failed:', error);
+    // Use fallback pixel renderer
+    if (canvasEl) {
+      canvasEl.classList.remove('hidden');
+      renderFallbackPixelScene(canvasEl, sceneData);
+    }
+    if (imageEl) imageEl.classList.add('hidden');
+    
+    const resultEl = $('pixel-result');
+    if (resultEl) {
+      resultEl.textContent = '✦ Pixel render';
+      resultEl.className = 'pixel-result';
+    }
+  }
+  
+  if (loadingEl) loadingEl.classList.add('hidden');
+  isGeneratingImage = false;
+}
+
+function buildImagePrompt(sceneData) {
+  const { location, action, mood, actor, target } = sceneData;
+  
+  let prompt = '';
+  
+  // Location
+  const locations = {
+    bonfire: 'a crumbling bonfire in a dark fantasy wasteland',
+    gate: 'a broken stone gate in an ashen wasteland',
+    forest: 'dark twisted trees in a dead forest',
+    shrine: 'an ancient half-collapsed shrine in the ruins',
+    crypt: 'a dark stone crypt with old graves',
+    tower: 'a shattered tower under a red lightning sky',
+    marsh: 'a misty marsh that swallows footsteps',
+    keep: 'a ruined stone keep with scarred walls',
+  };
+  prompt += locations[location] || 'a dark fantasy wasteland';
+  
+  // Action
+  if (action === 'attack' || action === 'hit') {
+    prompt += `, ${actor || 'a warrior'} attacking ${target || 'a monster'} with a weapon`;
+  } else if (action === 'heal') {
+    prompt += `, ${actor || 'a character'} being healed by a glowing light`;
+  } else if (action === 'search') {
+    prompt += `, ${actor || 'a character'} searching through the ashes for supplies`;
+  } else if (action === 'stealth') {
+    prompt += `, ${actor || 'a character'} hiding in the shadows`;
+  }
+  
+  // Mood
+  if (mood === 'dark') prompt += ', dark and ominous atmosphere';
+  else if (mood === 'fire') prompt += ', warm firelight illuminating the scene';
+  else if (mood === 'combat') prompt += ', intense combat scene, sparks flying';
+  
+  return prompt;
+}
+
+// ---------- Fallback Pixel Art Renderer (canvas) ----------
+function renderFallbackPixelScene(canvas, sceneData) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  const p = 8; // pixel size
+  
+  ctx.imageSmoothingEnabled = false;
+  
+  // Clear
+  ctx.fillStyle = '#0a0806';
+  ctx.fillRect(0, 0, w, h);
+  
+  // Sky gradient
+  const colors = {
+    dark: ['#1a1010', '#0a0806'],
+    fire: ['#2a1a0a', '#0a0806'],
+    combat: ['#1a0a0a', '#0a0604'],
+  };
+  const sky = colors[sceneData.mood] || colors.dark;
+  for (let y = 0; y < h * 0.6; y += p) {
+    const t = y / (h * 0.6);
+    const r = parseInt(sky[0].slice(1,3), 16) + (parseInt(sky[1].slice(1,3), 16) - parseInt(sky[0].slice(1,3), 16)) * t;
+    const g = parseInt(sky[0].slice(3,5), 16) + (parseInt(sky[1].slice(3,5), 16) - parseInt(sky[0].slice(3,5), 16)) * t;
+    const b = parseInt(sky[0].slice(5,7), 16) + (parseInt(sky[1].slice(5,7), 16) - parseInt(sky[0].slice(5,7), 16)) * t;
+    ctx.fillStyle = `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+    ctx.fillRect(0, y, w, p);
+  }
+  
+  // Ground
+  const groundY = h * 0.65;
+  ctx.fillStyle = '#1a1510';
+  ctx.fillRect(0, groundY, w, h - groundY);
+  
+  // Bonfire
+  const cx = w / 2;
+  const cy = groundY + 20;
+  ctx.fillStyle = '#3a2a1a';
+  ctx.fillRect(cx - 20, cy - 4, 40, 12);
+  ctx.fillStyle = '#4a3a2a';
+  ctx.fillRect(cx - 24, cy, 48, 6);
+  
+  // Fire
+  const flicker = Math.random() * 0.3 + 0.7;
+  ctx.fillStyle = `rgba(255, 180, 50, ${0.6 * flicker})`;
+  ctx.fillRect(cx - 12, cy - 30 * flicker, 24, 24);
+  ctx.fillStyle = `rgba(255, 100, 20, ${0.4 * flicker})`;
+  ctx.fillRect(cx - 6, cy - 40 * flicker, 12, 20);
+  
+  // Actor (player)
+  const px = w * 0.35;
+  const py = groundY - 10;
+  ctx.fillStyle = '#f0c477';
+  ctx.fillRect(px - 6, py - 24, 12, 24);
+  ctx.fillRect(px - 8, py - 32, 16, 10);
+  ctx.fillRect(px - 14, py - 16, 6, 6);
+  ctx.fillRect(px + 8, py - 16, 6, 6);
+  
+  // Target (enemy)
+  const tx = w * 0.65;
+  const ty = groundY - 10;
+  ctx.fillStyle = '#e17055';
+  ctx.fillRect(tx - 8, ty - 28, 16, 28);
+  ctx.fillRect(tx - 10, ty - 38, 20, 12);
+  
+  // Enemy weapon
+  ctx.fillStyle = '#8a7a6a';
+  ctx.fillRect(tx + 14, ty - 28, 4, 24);
+  
+  // Hit sparks if attacking
+  if (sceneData.action === 'attack' || sceneData.action === 'hit') {
+    for (let i = 0; i < 15; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * 30 + 5;
+      const size = Math.random() * 4 + 1;
+      ctx.fillStyle = `rgba(255, 200, 100, ${Math.random() * 0.8 + 0.2})`;
+      ctx.fillRect(
+        tx + Math.cos(angle) * dist,
+        ty - 20 + Math.sin(angle) * dist,
+        size, size
+      );
+    }
   }
 }
   // Player List
@@ -1926,33 +2124,23 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
-
-// Replay last action
-$('btn-replay-last')?.addEventListener('click', () => {
-  const container = $('last-action-container');
+// Replay scene button
+$('btn-replay-pixel')?.addEventListener('click', () => {
+  const container = $('pixel-scene');
   if (!container) return;
   
-  container.classList.remove('replaying');
+  container.classList.remove('flash');
   void container.offsetWidth;
-  container.classList.add('replaying');
-  container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  container.classList.add('flash');
   
   sounds.playClick();
   
-  const storyText = $('story-text');
-  if (storyText) {
-    storyText.style.transition = 'background 0.3s ease';
-    storyText.style.background = 'rgba(209, 138, 75, 0.15)';
-    setTimeout(() => {
-      storyText.style.background = 'rgba(255, 255, 255, 0.02)';
-    }, 800);
+  // Re-generate the scene
+  const history = latestSession?.story_history || [];
+  if (history.length > 0) {
+    const sceneData = parseSceneFromStory(history[history.length - 1], latestSession);
+    generateSceneImage(sceneData);
   }
   
-  toast('Replaying last action...', 1500);
-});
-
-// Click container to replay
-$('last-action-container')?.addEventListener('click', (e) => {
-  if (e.target.closest('.replay-btn')) return;
-  $('btn-replay-last')?.click();
+  toast('Replaying scene...', 1500);
 });

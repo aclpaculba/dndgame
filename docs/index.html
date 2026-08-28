@@ -345,39 +345,6 @@
             <span id="map-location">Fireshrine</span>
             <button id="map-toggle" class="map-toggle" type="button" aria-expanded="false">View map</button>
           </div>
-          <!-- LAST ACTION + REPLAY -->
-          <div id="last-action-container" class="last-action-container hidden">
-            <div class="last-action-header">
-              <span class="last-action-player"></span>
-              <span class="last-action-timestamp"></span>
-            </div>
-            <div class="last-action-body">
-              <span class="last-action-choice"></span>
-              <span class="last-action-roll"></span>
-            </div>
-            <div class="last-action-outcome"></div>
-            <button id="btn-replay-last" class="btn btn-secondary btn-sm replay-btn">
-              <span aria-hidden="true">↻</span> Replay
-            </button>
-          </div>
-          <div id="mini-map" class="mini-map hidden" role="img" aria-label="A small map of the current region"></div>
-          <div id="map-popover" class="map-popover hidden" role="dialog" aria-live="polite">
-            <button id="map-popover-close" class="map-popover-close" type="button" aria-label="Close map details">×</button>
-            <strong id="map-popover-title"></strong>
-            <span id="map-popover-description"></span>
-          </div>
-        </section>
-        <div id="story-text" class="story-text" role="article" aria-live="polite">
-          The fire has not yet been lit…
-        </div>
-        <div id="choices" class="choices" role="group" aria-label="Story choices"></div>
-        <div id="inventory-panel" class="inventory-panel hidden" aria-label="Inventory">
-          <h4>Your Inventory</h4>
-          <div id="inventory-list" class="inventory-list"></div>
-        </div>
-        <p id="story-status" class="story-status" role="status"></p>
-      </div>
-
       <aside class="activity-panel" aria-label="Activity">
         <div class="activity-section">
           <h3>Story Log</h3>
@@ -402,7 +369,51 @@
       </aside>
     </main>
   </section>
+  <section class="mini-map-panel" aria-labelledby="map-title">
+    <div class="mini-map-heading">
+      <h3 id="map-title">Ashen Map</h3>
+      <span id="map-location">Fireshrine</span>
+      <button id="map-toggle" class="map-toggle" type="button" aria-expanded="false">View map</button>
+    </div>
+    <div id="mini-map" class="mini-map hidden" role="img" aria-label="A small map of the current region"></div>
+    <div id="map-popover" class="map-popover hidden" role="dialog" aria-live="polite">
+      <button id="map-popover-close" class="map-popover-close" type="button" aria-label="Close map details">×</button>
+      <strong id="map-popover-title"></strong>
+      <span id="map-popover-description"></span>
+    </div>
+  </section>
 
+  <!-- PIXEL SCENE - AI Generated Story Visual (UNDER THE MAP) -->
+  <div id="pixel-scene" class="pixel-scene hidden">
+    <div class="pixel-scene-container">
+      <div id="pixel-scene-content">
+        <!-- Image will be inserted here -->
+        <img id="pixel-image" class="pixel-image hidden" alt="Story scene" />
+        <!-- Fallback canvas for pixel art if AI fails -->
+        <canvas id="pixel-canvas" class="pixel-canvas hidden" width="640" height="360"></canvas>
+        <!-- Loading overlay -->
+        <div id="pixel-loading" class="pixel-loading hidden">
+          <div class="pixel-loader"></div>
+          <span>Forging the scene...</span>
+        </div>
+      </div>
+      <!-- Overlay info -->
+      <div class="pixel-overlay">
+        <div class="pixel-action-text">
+          <span id="pixel-player" class="pixel-player">Kaelen</span>
+          <span id="pixel-action" class="pixel-action">attacked</span>
+          <span id="pixel-target" class="pixel-target">the beast</span>
+        </div>
+        <div class="pixel-roll-display">
+          <span id="pixel-roll" class="pixel-roll">🎲 17</span>
+          <span id="pixel-result" class="pixel-result">⚡ Hit!</span>
+        </div>
+      </div>
+    </div>
+    <button id="btn-replay-pixel" class="btn btn-secondary btn-sm replay-pixel-btn">
+      <span aria-hidden="true">↻</span> Replay Scene
+    </button>
+  </div>
   <!-- ================= END SCREEN ================= -->
   <section id="screen-end" class="screen" role="main" aria-label="Game over">
     <div class="end-card glass-card">
