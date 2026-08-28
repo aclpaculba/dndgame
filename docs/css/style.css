@@ -911,6 +911,46 @@ h1, h2, h3, h4, .topbar-brand, .boss-name {
   font-size: 0.68rem;
 }
 
+.player-allocate {
+  margin-top: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  background: rgba(0, 184, 148, 0.08);
+  border: 1px solid rgba(0, 184, 148, 0.3);
+  border-radius: var(--radius-sm);
+}
+
+.allocate-header {
+  font-size: 0.68rem;
+  color: #00b894;
+  font-weight: 600;
+  margin-bottom: var(--space-xs);
+}
+
+.allocate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.allocate-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+.allocate-row strong {
+  color: var(--text-primary);
+}
+
+.allocate-row .btn {
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
 .player-inventory {
   margin-top: var(--space-xs);
   padding-top: var(--space-xs);
@@ -1095,6 +1135,23 @@ h1, h2, h3, h4, .topbar-brand, .boss-name {
 .choice-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.choice-btn-vote {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border-style: dashed;
+}
+
+.choice-btn-vote::before {
+  content: '⟲';
+}
+
+.vote-count {
+  float: right;
+  font-size: 0.72rem;
+  color: var(--text-muted);
 }
 
 .choice-btn::before {

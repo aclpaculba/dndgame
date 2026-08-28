@@ -1006,6 +1006,29 @@ function renderPlayerStats(character) {
   }).join('')}</div>`;
 }
 
+// Spends one of the player's unallocated stat points (earned from
+// leveling up on souls) on a chosen ability score, capped at 20 to
+// match what the story engine is told the maximum is.
+async function allocateStatPoint(stat) {
+  const me = latestPlayers.find(p => p.user_id === currentUser.uid);
+  if (!me) return;
+  const remaining = Number(me.unallocated_stat_points) || 0;
+  if (remaining <= 0) return;
+  const current = Number(me[stat]) || 10;
+  if (current >= 20) {
+    toast('That ability is already at its maximum.', 2500);
+    return;
+  }
+
+  const { error } = await sb.from('players')
+    .update({ [stat]: current + 1, unallocated_stat_points: remaining - 1 })
+    .eq('session_id', currentSessionId).eq('user_id', currentUser.uid);
+  if (error) {
+    console.error('allocateStatPoint failed:', error);
+    toast('Could not spend that point: ' + error.message, 3500, 'error');
+  }
+}
+
 function renderPlayerInventory(player) {
   const inventory = Array.isArray(player.inventory) ? player.inventory.filter(item => item.type !== 'gear') : [];
   if (!inventory.length) return '<div class="player-stats-empty">No items carried</div>';
@@ -1272,6 +1295,19 @@ function renderGame() {
             <div class="p-health-fill" style="width:${pct}%;background:${color}"></div>
           </div>
           <div class="session-meta">Level ${p.level || 1} · ${p.souls || 0} souls · ${p.status || (p.is_alive ? 'Healthy' : 'Dead')}</div>
+          ${p.user_id === currentUser.uid && Number(p.unallocated_stat_points) > 0 ? `
+            <div class="player-allocate">
+              <div class="allocate-header">${p.unallocated_stat_points} stat point${Number(p.unallocated_stat_points) === 1 ? '' : 's'} to spend — souls earned you these</div>
+              <div class="allocate-grid">
+                ${['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'].map(stat => `
+                  <div class="allocate-row">
+                    <span>${stat.slice(0, 3).toUpperCase()} <strong>${p[stat] || 10}</strong></span>
+                    <button class="btn btn-secondary btn-sm" data-allocate-stat="${stat}" ${Number(p[stat] || 10) >= 20 ? 'disabled' : ''}>+1</button>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
           <div class="player-detail-actions">
             <button class="player-stats-toggle" type="button" aria-expanded="false">Stats</button>
             <button class="player-inventory-toggle" type="button" aria-expanded="false">Inventory</button>
@@ -1311,6 +1347,12 @@ function renderGame() {
         gear.classList.toggle('hidden', expanded);
       });
     });
+    list.querySelectorAll('[data-allocate-stat]').forEach(button => {
+      button.addEventListener('click', () => {
+        sounds.playClick();
+        allocateStatPoint(button.dataset.allocateStat);
+      });
+    });
   }
 
   // Turn Indicator
@@ -1341,28 +1383,61 @@ function renderGame() {
   if (storyTextEl) storyTextEl.textContent = latestSession.story_narrative || '';
 
   // Choices
+  // Default is turn-based — only the acting player can choose, same
+  // as before voting was added. If they're not sure, they can hit
+  // "Put it to a vote" instead of picking directly, which is the
+  // *only* way a vote ever starts — it's an escape hatch, not the
+  // default flow for every single choice.
   const isMyTurn = currentTurnUid === currentUser.uid && latestSession.status === 'active';
-  const canVote = latestPlayers.some(player => player.user_id === currentUser.uid && player.is_alive);
+  const alivePlayers = latestPlayers.filter(player => player.is_alive);
+  const iAmAlive = alivePlayers.some(player => player.user_id === currentUser.uid);
+  const voteState = (latestSession.vote_state && latestSession.vote_state.active) ? latestSession.vote_state : null;
   const choicesEl = $('choices');
-  
+
   if (choicesEl) {
     if (isStuck) {
       choicesEl.innerHTML = `<button id="btn-start-tale" class="choice-btn">Start the tale</button>`;
       $('btn-start-tale')?.addEventListener('click', retryKickoff);
     } else if (!choices.length || latestSession.status !== 'active') {
       choicesEl.innerHTML = '';
+    } else if (voteState) {
+      // A vote is in progress — everyone alive can vote on the same
+      // three choices, one vote each, live counts shown as they come in.
+      const votes = voteState.votes || {};
+      const hasVoted = Object.prototype.hasOwnProperty.call(votes, currentUser.uid);
+      choicesEl.innerHTML = choices.map((c, i) => {
+        const count = Object.values(votes).filter(v => v === i).length;
+        return `
+          <button class="choice-btn" data-vote="${i}" ${(hasVoted || !iAmAlive) ? 'disabled' : ''}>
+            ${escapeHtml(c)}
+            <span class="vote-count">${count} vote${count === 1 ? '' : 's'}</span>
+          </button>
+        `;
+      }).join('');
+      choicesEl.querySelectorAll('[data-vote]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          sounds.playClick();
+          castVote(Number(btn.dataset.vote));
+        });
+      });
     } else {
       choicesEl.innerHTML = choices.map((c, i) => `
-        <button class="choice-btn" data-choice="${i}" ${canVote ? '' : 'disabled'}>
+        <button class="choice-btn" data-choice="${i}" ${isMyTurn ? '' : 'disabled'}>
           ${escapeHtml(c)}
         </button>
-      `).join('');
-      
+      `).join('') + (isMyTurn ? `
+        <button class="choice-btn choice-btn-vote" type="button" data-put-to-vote>Not sure? Put it to a vote</button>
+      ` : '');
+
       choicesEl.querySelectorAll('[data-choice]').forEach(btn => {
         btn.addEventListener('click', () => {
           sounds.playClick();
           submitChoice(Number(btn.dataset.choice));
         });
+      });
+      choicesEl.querySelector('[data-put-to-vote]')?.addEventListener('click', () => {
+        sounds.playClick();
+        startVote();
       });
     }
   }
@@ -1370,9 +1445,16 @@ function renderGame() {
   // Status
   const statusEl = $('story-status');
   if (statusEl) {
-    const votes = latestSession.vote_state || {};
-    const voteCount = Object.keys(votes).length;
-    statusEl.textContent = isStuck ? '' : (latestSession.status === 'active' ? `Party vote: ${voteCount}/${latestPlayers.filter(player => player.is_alive).length} votes cast.` : '');
+    if (isStuck) {
+      statusEl.textContent = '';
+    } else if (voteState) {
+      const voteCount = Object.keys(voteState.votes || {}).length;
+      statusEl.textContent = `Party vote: ${voteCount}/${alivePlayers.length} votes cast.`;
+    } else if (latestSession.status === 'active') {
+      statusEl.textContent = isMyTurn ? '' : 'Only the active player can choose (or put it to a vote).';
+    } else {
+      statusEl.textContent = '';
+    }
   }
 
   // Inventory — only shown to the acting player, on their own turn,
@@ -1430,31 +1512,82 @@ async function useItem(itemId) {
   }
 }
 
-// ---------- Submit Choice ----------
+// ---------- Submit Choice (turn-based — only the acting player calls this) ----------
 async function submitChoice(choiceIndex) {
   const choicesEl = $('choices');
   const statusEl = $('story-status');
-  const votes = { ...(latestSession.vote_state || {}), [currentUser.uid]: choiceIndex };
-  const alivePlayers = latestPlayers.filter(player => player.is_alive);
-  const voteCounts = choicesEl ? [...choicesEl.querySelectorAll('[data-choice]')].map(() => 0) : [];
-  Object.values(votes).forEach(vote => { if (voteCounts[vote] !== undefined) voteCounts[vote] += 1; });
-  const winner = voteCounts.indexOf(Math.max(...voteCounts));
-  latestSession.vote_state = votes;
+  if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
+  if (statusEl) statusEl.textContent = 'The storyteller is weaving…';
+
+  const { data, error } = await sb.functions.invoke('generate-story', {
+    body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
+  });
+  if (error) {
+    console.error('submitChoice failed:', error);
+    if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
+    toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+  }
+}
+
+// ---------- Party vote (opt-in escape hatch, not the default flow) ----------
+// Only the current-turn player can trigger this — everyone else just
+// waits for their turn normally. Once started, every alive player
+// gets one vote on the same three choices; the majority pick gets
+// submitted the moment the last vote comes in.
+async function startVote() {
+  const { error } = await sb.from('sessions')
+    .update({ vote_state: { active: true, votes: {} } })
+    .eq('id', currentSessionId);
+  if (error) {
+    console.error('startVote failed:', error);
+    toast('Could not start a vote: ' + error.message, 4000, 'error');
+  }
+}
+
+async function castVote(choiceIndex) {
+  const current = (latestSession.vote_state && latestSession.vote_state.active)
+    ? latestSession.vote_state
+    : { active: true, votes: {} };
+  const votes = { ...current.votes, [currentUser.uid]: choiceIndex };
+  const alivePlayers = latestPlayers.filter(p => p.is_alive);
+
+  // Show the updated count immediately instead of waiting on the
+  // realtime round-trip back from the database.
+  latestSession.vote_state = { active: true, votes };
   renderGame();
-  const { error: voteError } = await sb.from('sessions').update({ vote_state: votes }).eq('id', currentSessionId);
+
+  const { error: voteError } = await sb.from('sessions')
+    .update({ vote_state: { active: true, votes } })
+    .eq('id', currentSessionId);
   if (voteError) {
-    if (statusEl) statusEl.textContent = 'Could not record the party vote.';
+    console.error('castVote failed:', voteError);
     toast('Vote failed: ' + voteError.message, 4000, 'error');
     return;
   }
+
   if (Object.keys(votes).length < alivePlayers.length) return;
+
+  // Everyone alive has voted — tally and submit the majority choice.
+  // (If two people happen to cast the very last vote at the exact
+  // same instant, both browsers could reach this point together and
+  // both call generate-story — a rare, low-stakes race that existed
+  // in the original voting code too; not worth a distributed lock for
+  // a casual game.)
+  const tally = {};
+  Object.values(votes).forEach(v => { tally[v] = (tally[v] || 0) + 1; });
+  const winner = Number(Object.keys(tally).reduce((best, key) =>
+    tally[key] > tally[best] ? key : best, Object.keys(tally)[0]));
+
+  const choicesEl = $('choices');
+  const statusEl = $('story-status');
   if (statusEl) statusEl.textContent = 'The party has agreed. The storyteller is weaving…';
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
+
   const { data, error } = await sb.functions.invoke('generate-story', {
     body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex: winner },
   });
   if (error) {
-    console.error('submitChoice failed:', error);
+    console.error('submitChoice (vote) failed:', error);
     if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
     toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
   }

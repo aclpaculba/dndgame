@@ -527,6 +527,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
 
     const { error: playerUpdateError } = await db.from('players').update({
       health: newHealth, is_alive: isAlive, inventory: newInventory,
+      status, souls: totalSouls, level: nextLevel, unallocated_stat_points: statPoints,
     })
       .eq('session_id', sessionId).eq('user_id', actingUid);
     if (playerUpdateError) {
@@ -653,6 +654,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     story_narrative: narrative,
     story_choices: (result.choices ?? []).slice(0, 3),
     story_history: newHistory,
+    vote_state: {},
     updated_at: new Date().toISOString(),
   }).eq('id', sessionId);
   if (turnUpdateError) {
