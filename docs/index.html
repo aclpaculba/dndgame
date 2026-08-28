@@ -80,7 +80,6 @@
       </div>
       
       <form id="form-character-creation" class="char-creation-form">
-        <!-- Step 1: Basic Info -->
         <div id="char-step-1" class="char-step active">
           <label>Character Name
             <input type="text" id="char-name" class="input-modern" maxlength="24" placeholder="Chosen by the storyteller" disabled />
@@ -111,7 +110,6 @@
           <button type="submit" class="btn btn-primary">Let the storyteller choose</button>
         </div>
 
-        <!-- Step 2: Stats -->
         <div id="char-step-2" class="char-step">
           <h4 style="margin-bottom: var(--space-xs);">Assign Your Stats</h4>
           <p class="text-secondary" style="font-size: 0.9rem; margin-bottom: var(--space-md);">All stats begin at 10; the storyteller applies your origin bonuses.
@@ -183,7 +181,6 @@
           </div>
         </div>
 
-        <!-- Step 3: Background -->
         <div id="char-step-3" class="char-step">
           <h4 style="margin-bottom: var(--space-md);">Character Background</h4>
           
@@ -231,21 +228,17 @@
         <h3 id="stats-title">Character Sheet</h3>
         <button id="btn-stats-close" class="btn btn-ghost" style="font-size: 1.5rem; padding: 0 8px;">×</button>
       </div>
-      
-      <div id="stats-content">
-        <!-- Dynamically populated -->
-      </div>
+      <div id="stats-content"></div>
     </div>
   </dialog>
+
   <dialog id="modal-alltime-stats" class="modal" role="dialog" aria-labelledby="alltime-title">
     <div class="modal-card glass-card" style="max-width: 460px;">
       <div style="display: flex; justify-content: space-between; align-items: start;">
         <h3 id="alltime-title">All-Time Stats</h3>
         <button id="btn-alltime-close" class="btn btn-ghost" style="font-size: 1.5rem; padding: 0 8px;">×</button>
       </div>
-      <div id="alltime-content">
-        <!-- Dynamically populated -->
-      </div>
+      <div id="alltime-content"></div>
     </div>
   </dialog>
 
@@ -266,8 +259,7 @@
       <div class="lobby-col">
         <h2>Your Table</h2>
         <p class="text-secondary">Create a new session or rejoin one in progress.</p>
-        <button id="btn-create-session" class="btn btn-primary btn-lg" style="width: 100%;">Create New Session
-        </button>
+        <button id="btn-create-session" class="btn btn-primary btn-lg" style="width: 100%;">Create New Session</button>
         <div id="active-session-banner" class="hidden active-session-banner">
           <span>You have an active session</span>
           <button id="btn-resume-session" class="btn btn-secondary btn-sm">Resume →</button>
@@ -278,8 +270,7 @@
         <h2>Joinable Tables</h2>
         <p class="text-secondary">Pick a table to join the adventure.</p>
         <div id="session-list" class="session-list">
-          <p class="text-muted" id="session-list-empty" style="padding: var(--space-lg); text-align: center;">No open sessions — create one above.
-          </p>
+          <p class="text-muted" id="session-list-empty" style="padding: var(--space-lg); text-align: center;">No open sessions — create one above.</p>
         </div>
       </div>
 
@@ -313,6 +304,7 @@
     </header>
 
     <main class="game-main">
+      <!-- LEFT: Player Panel -->
       <aside class="player-panel" aria-label="Players">
         <h3>Players</h3>
         <ul id="player-list" class="player-list" role="list"></ul>
@@ -320,11 +312,12 @@
           <h3 id="hall-title">Hall of the Dead</h3>
           <div id="hall-of-dead" class="hall-of-dead">No fallen heroes yet.</div>
         </section>
-        <div class="turn-indicator" id="turn-indicator" role="status">Waiting for players…
-        </div>
+        <div class="turn-indicator" id="turn-indicator" role="status">Waiting for players…</div>
       </aside>
 
-            <div class="story-panel" role="main">
+      <!-- CENTER: Story Panel -->
+      <div class="story-panel" role="main">
+        <!-- Boss Health Bar -->
         <div id="boss-panel" class="boss-panel hidden" aria-label="Boss">
           <div class="boss-name-row">
             <span id="boss-name" class="boss-name">The Nameless Dread</span>
@@ -335,16 +328,75 @@
             <div id="boss-health-fill" class="boss-health-fill" style="width:100%"></div>
           </div>
         </div>
+
+        <!-- Safe Zone Banner -->
         <div id="safe-zone-banner" class="safe-zone-banner hidden" role="status">
           <strong>Safe Zone</strong>
           <span id="safe-zone-message">No enemies here — rest at the bonfire or use a potion.</span>
         </div>
+
+        <!-- Map -->
         <section class="mini-map-panel" aria-labelledby="map-title">
           <div class="mini-map-heading">
             <h3 id="map-title">Ashen Map</h3>
             <span id="map-location">Fireshrine</span>
             <button id="map-toggle" class="map-toggle" type="button" aria-expanded="false">View map</button>
           </div>
+          <div id="mini-map" class="mini-map hidden" role="img" aria-label="A small map of the current region"></div>
+          <div id="map-popover" class="map-popover hidden" role="dialog" aria-live="polite">
+            <button id="map-popover-close" class="map-popover-close" type="button" aria-label="Close map details">×</button>
+            <strong id="map-popover-title"></strong>
+            <span id="map-popover-description"></span>
+          </div>
+        </section>
+
+        <!-- PIXEL SCENE - AI Generated Story Visual (UNDER THE MAP) -->
+        <div id="pixel-scene" class="pixel-scene hidden">
+          <div class="pixel-scene-container">
+            <div id="pixel-scene-content">
+              <img id="pixel-image" class="pixel-image hidden" alt="Story scene" />
+              <canvas id="pixel-canvas" class="pixel-canvas hidden" width="640" height="360"></canvas>
+              <div id="pixel-loading" class="pixel-loading hidden">
+                <div class="pixel-loader"></div>
+                <span>Forging the scene...</span>
+              </div>
+            </div>
+            <div class="pixel-overlay">
+              <div class="pixel-action-text">
+                <span id="pixel-player" class="pixel-player">Kaelen</span>
+                <span id="pixel-action" class="pixel-action">attacked</span>
+                <span id="pixel-target" class="pixel-target">the beast</span>
+              </div>
+              <div class="pixel-roll-display">
+                <span id="pixel-roll" class="pixel-roll">🎲 17</span>
+                <span id="pixel-result" class="pixel-result">⚡ Hit!</span>
+              </div>
+            </div>
+          </div>
+          <button id="btn-replay-pixel" class="btn btn-secondary btn-sm replay-pixel-btn">
+            <span aria-hidden="true">↻</span> Replay Scene
+          </button>
+        </div>
+
+        <!-- Story Text -->
+        <div id="story-text" class="story-text" role="article" aria-live="polite">
+          The fire has not yet been lit…
+        </div>
+
+        <!-- Story Choices -->
+        <div id="choices" class="choices" role="group" aria-label="Story choices"></div>
+
+        <!-- Inventory -->
+        <div id="inventory-panel" class="inventory-panel hidden" aria-label="Inventory">
+          <h4>Your Inventory</h4>
+          <div id="inventory-list" class="inventory-list"></div>
+        </div>
+
+        <!-- Status -->
+        <p id="story-status" class="story-status" role="status"></p>
+      </div>
+
+      <!-- RIGHT: Activity Panel -->
       <aside class="activity-panel" aria-label="Activity">
         <div class="activity-section">
           <h3>Story Log</h3>
@@ -369,51 +421,7 @@
       </aside>
     </main>
   </section>
-  <section class="mini-map-panel" aria-labelledby="map-title">
-    <div class="mini-map-heading">
-      <h3 id="map-title">Ashen Map</h3>
-      <span id="map-location">Fireshrine</span>
-      <button id="map-toggle" class="map-toggle" type="button" aria-expanded="false">View map</button>
-    </div>
-    <div id="mini-map" class="mini-map hidden" role="img" aria-label="A small map of the current region"></div>
-    <div id="map-popover" class="map-popover hidden" role="dialog" aria-live="polite">
-      <button id="map-popover-close" class="map-popover-close" type="button" aria-label="Close map details">×</button>
-      <strong id="map-popover-title"></strong>
-      <span id="map-popover-description"></span>
-    </div>
-  </section>
 
-  <!-- PIXEL SCENE - AI Generated Story Visual (UNDER THE MAP) -->
-  <div id="pixel-scene" class="pixel-scene hidden">
-    <div class="pixel-scene-container">
-      <div id="pixel-scene-content">
-        <!-- Image will be inserted here -->
-        <img id="pixel-image" class="pixel-image hidden" alt="Story scene" />
-        <!-- Fallback canvas for pixel art if AI fails -->
-        <canvas id="pixel-canvas" class="pixel-canvas hidden" width="640" height="360"></canvas>
-        <!-- Loading overlay -->
-        <div id="pixel-loading" class="pixel-loading hidden">
-          <div class="pixel-loader"></div>
-          <span>Forging the scene...</span>
-        </div>
-      </div>
-      <!-- Overlay info -->
-      <div class="pixel-overlay">
-        <div class="pixel-action-text">
-          <span id="pixel-player" class="pixel-player">Kaelen</span>
-          <span id="pixel-action" class="pixel-action">attacked</span>
-          <span id="pixel-target" class="pixel-target">the beast</span>
-        </div>
-        <div class="pixel-roll-display">
-          <span id="pixel-roll" class="pixel-roll">🎲 17</span>
-          <span id="pixel-result" class="pixel-result">⚡ Hit!</span>
-        </div>
-      </div>
-    </div>
-    <button id="btn-replay-pixel" class="btn btn-secondary btn-sm replay-pixel-btn">
-      <span aria-hidden="true">↻</span> Replay Scene
-    </button>
-  </div>
   <!-- ================= END SCREEN ================= -->
   <section id="screen-end" class="screen" role="main" aria-label="Game over">
     <div class="end-card glass-card">
@@ -422,8 +430,7 @@
       <div class="end-actions">
         <button id="btn-back-to-lobby" class="btn btn-primary">Return to Lobby</button>
       </div>
-      <p class="text-muted" style="font-size: 0.8rem; margin-top: var(--space-md);">This table has reset — ready for the next tale.
-      </p>
+      <p class="text-muted" style="font-size: 0.8rem; margin-top: var(--space-md);">This table has reset — ready for the next tale.</p>
     </div>
   </section>
 

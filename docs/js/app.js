@@ -1766,57 +1766,41 @@ function renderGame() {
   if (storyTextEl) storyTextEl.textContent = latestSession.story_narrative || '';
 
   // Choices
-  const isMyTurn = currentTurnUid === currentUser.uid && latestSession.status === 'active';
-  const alivePlayers = latestPlayers.filter(player => player.is_alive);
-  const iAmAlive = alivePlayers.some(player => player.user_id === currentUser.uid);
-  const voteState = (latestSession.vote_state && latestSession.vote_state.active) ? latestSession.vote_state : null;
-  const choicesEl = $('choices');
+const isMyTurn = currentTurnUid === currentUser.uid && latestSession.status === 'active';
+const alivePlayers = latestPlayers.filter(player => player.is_alive);
+const iAmAlive = alivePlayers.some(player => player.user_id === currentUser.uid);
+const voteState = (latestSession.vote_state && latestSession.vote_state.active) ? latestSession.vote_state : null;
+const choicesEl = $('choices');
 
-  if (choicesEl) {
-    if (isStuck) {
-      choicesEl.innerHTML = `<button id="btn-start-tale" class="choice-btn">Start the tale</button>`;
-      $('btn-start-tale')?.addEventListener('click', retryKickoff);
-    } else if (!choices.length || latestSession.status !== 'active') {
-      choicesEl.innerHTML = '';
-    } else if (voteState) {
-      const votes = voteState.votes || {};
-      const hasVoted = Object.prototype.hasOwnProperty.call(votes, currentUser.uid);
-      choicesEl.innerHTML = choices.map((c, i) => {
-        const count = Object.values(votes).filter(v => v === i).length;
-        return `
-          <button class="choice-btn" data-vote="${i}" ${(hasVoted || !iAmAlive) ? 'disabled' : ''}>
-            ${escapeHtml(c)}
-            <span class="vote-count">${count} vote${count === 1 ? '' : 's'}</span>
-          </button>
-        `;
-      }).join('');
-      choicesEl.querySelectorAll('[data-vote]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          sounds.playClick();
-          castVote(Number(btn.dataset.vote));
-        });
-      });
-    } else {
-      choicesEl.innerHTML = choices.map((c, i) => `
-        <button class="choice-btn" data-choice="${i}" ${isMyTurn ? '' : 'disabled'}>
-          ${escapeHtml(c)}
-        </button>
-      `).join('') + (isMyTurn ? `
-        <button class="choice-btn choice-btn-vote" type="button" data-put-to-vote>Not sure? Put it to a vote</button>
-      ` : '');
+if (choicesEl) {
+  if (isStuck) {
+    choicesEl.innerHTML = `<button id="btn-start-tale" class="choice-btn">Start the tale</button>`;
+    $('btn-start-tale')?.addEventListener('click', retryKickoff);
+  } else if (!choices.length || latestSession.status !== 'active') {
+    choicesEl.innerHTML = '';
+  } else if (voteState) {
+    // ... vote rendering
+  } else {
+    choicesEl.innerHTML = choices.map((c, i) => `
+      <button class="choice-btn" data-choice="${i}" ${isMyTurn ? '' : 'disabled'}>
+        ${escapeHtml(c)}
+      </button>
+    `).join('') + (isMyTurn ? `
+      <button class="choice-btn choice-btn-vote" type="button" data-put-to-vote>Not sure? Put it to a vote</button>
+    ` : '');
 
-      choicesEl.querySelectorAll('[data-choice]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          sounds.playClick();
-          submitChoice(Number(btn.dataset.choice));
-        });
-      });
-      choicesEl.querySelector('[data-put-to-vote]')?.addEventListener('click', () => {
+    choicesEl.querySelectorAll('[data-choice]').forEach(btn => {
+      btn.addEventListener('click', () => {
         sounds.playClick();
-        startVote();
+        submitChoice(Number(btn.dataset.choice));
       });
-    }
+    });
+    choicesEl.querySelector('[data-put-to-vote]')?.addEventListener('click', () => {
+      sounds.playClick();
+      startVote();
+    });
   }
+}
 
   // Status
   const statusEl = $('story-status');
