@@ -132,15 +132,9 @@ function toast(msg, ms = 3200, type = 'info') {
   toast._t = setTimeout(() => t.classList.add('hidden'), ms);
 }
 
-// preferred_ui_mode still stores 'animated' / 'simple' in the database
-// (unchanged, so no migration needed) but the meaning has changed: it
-// now toggles a "plain" mode that strips all styling down to raw,
-// unstyled black-and-white HTML — no colors, no rounded corners, no
-// gradients, no shadows, no animation — rather than a fancier look.
 function applyTheme(mode) {
   const isPlain = mode === 'animated';
   document.body.classList.toggle('theme-plain', isPlain);
-
   const label = isPlain ? 'Plain mode: On' : 'Plain mode: Off';
   const t1 = $('ui-mode-toggle');
   const t2 = $('ui-mode-toggle-2');
@@ -217,7 +211,6 @@ async function loadCharacters() {
     characters = data || [];
     renderCharacterList();
     
-    // Check if there's a stored character selection
     const savedCharId = localStorage.getItem(CHAR_STORAGE_KEY);
     if (savedCharId && characters.some(c => c.id === savedCharId)) {
       currentCharacter = characters.find(c => c.id === savedCharId);
@@ -248,7 +241,6 @@ async function saveCharacter(characterData) {
     toast(`${data.name} has been created!`, 2500, 'success');
     sounds.playClick();
     
-    // Close modal
     const modal = $('modal-character-creation');
     if (modal) modal.close();
     
@@ -294,7 +286,6 @@ function selectCharacter(charId) {
   toast(`Selected ${char.name}`, 2000, 'success');
   sounds.playClick();
   
-  // Go to lobby
   enterLobby();
 }
 
@@ -409,7 +400,6 @@ function renderCharacterList() {
     `;
   }).join('');
   
-  // Event listeners for character cards
   list.querySelectorAll('.char-select-btn').forEach(btn => {
     btn.addEventListener('click', () => selectCharacter(btn.dataset.charId));
   });
@@ -434,14 +424,9 @@ function enterCharacterSelection() {
 let currentCharStats = getDefaultStats();
 
 function showCharStep(step) {
-  // Hide all steps
   document.querySelectorAll('.char-step').forEach(el => el.classList.remove('active'));
-  
-  // Show target step
   const target = $(`char-step-${step}`);
   if (target) target.classList.add('active');
-  
-  // Update stats display if on step 2
   if (step === 2) updateStatsDisplay();
 }
 
@@ -471,20 +456,14 @@ function updateStatsDisplay() {
 
 function adjustStat(stat, direction) {
   const newValue = currentCharStats[stat] + direction;
-  
-  // Validate range
   if (newValue < 8 || newValue > 15) return;
-  
-  // Check if we have enough points
   const oldCost = calculatePointBuyCost(currentCharStats);
   const testStats = { ...currentCharStats, [stat]: newValue };
   const newCost = calculatePointBuyCost(testStats);
-  
   if (newCost > 27) {
     toast('Not enough points remaining!', 2000, 'error');
     return;
   }
-  
   currentCharStats = testStats;
   updateStatsDisplay();
   sounds.playClick();
@@ -550,10 +529,8 @@ async function tryResumeFromStorage() {
     try { currentCharacter = JSON.parse(savedRandomCharacter); } catch { currentCharacter = null; }
   }
   
-  // Check if there's a saved character
   const savedCharId = localStorage.getItem(CHAR_STORAGE_KEY);
   if (savedCharId) {
-    // Try to load characters and auto-select
     await loadCharacters();
     if (currentCharacter) {
       enterLobby();
@@ -564,9 +541,6 @@ async function tryResumeFromStorage() {
   enterLobby();
 }
 
-// Shared by both sign-out buttons (the one on the character-selection
-// screen and the one actually visible in the lobby topbar) — clears
-// everything and drops back to the "enter your name" screen.
 function signOut() {
   teardownSubscriptions();
   currentUser = null;
@@ -585,19 +559,13 @@ $('btn-logout')?.addEventListener('click', signOut);
 
 // ---------- Character Creation Events ----------
 $('btn-create-character')?.addEventListener('click', () => {
-  // Reset stats
   currentCharStats = getDefaultStats();
   updateStatsDisplay();
-  
-  // Clear form fields
   const nameInput = $('char-name');
   if (nameInput) nameInput.value = '';
   const questionInput = $('char-question');
   if (questionInput) questionInput.value = '';
-  
-  // Show step 1
   showCharStep(1);
-  
   const modal = $('modal-character-creation');
   if (modal) modal.showModal();
 });
@@ -607,7 +575,6 @@ $('btn-creation-close')?.addEventListener('click', () => {
   if (modal) modal.close();
 });
 
-// Stat adjustment buttons
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('.stat-btn');
   if (btn) {
@@ -651,7 +618,6 @@ function setCurrentUserFromProfile(profile) {
   
   const el = $('lobby-username');
   if (el) el.textContent = `${currentUser.username}`;
-  
   const charEl = $('char-username');
   if (charEl) charEl.textContent = `${currentUser.username}`;
 }
@@ -702,11 +668,6 @@ async function refreshLobbyList() {
   });
 }
 
-// Deletes a joinable table entirely — only shown to the table's
-// creator. Players and chat messages for that session are removed
-// automatically (they cascade-delete along with the session row);
-// this just also clears any profile that still points at it as its
-// "active session" so nobody's stuck with a stale Resume button.
 async function deleteSession(sessionId) {
   if (!confirm('Delete this table? This removes it for everyone and cannot be undone.')) return;
 
@@ -736,21 +697,17 @@ function enterLobby() {
 
   refreshLobbyList();
   
-  // FIX: Remove existing channel first
   if (lobbyChannel) {
     sb.removeChannel(lobbyChannel);
     lobbyChannel = null;
   }
   
-  // FIX: Create channel and add ALL listeners BEFORE subscribe
   lobbyChannel = sb.channel('lobby-sessions');
   
-  // Add all listeners FIRST
   lobbyChannel
     .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, refreshLobbyList)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, refreshLobbyList);
   
-  // THEN subscribe
   lobbyChannel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
       console.log('Lobby channel connected');
@@ -761,8 +718,6 @@ function enterLobby() {
 }
 
 // ---------- Session Management ----------
-// Same item pool and shape as supabase/functions/_shared/game.ts —
-// kept in sync manually since the client can't import that module.
 const ITEM_POOL = [
   { name: 'Healing Potion', type: 'heal', value: 10, description: 'Restores 10 health.' },
   { name: 'Field Rations', type: 'heal', value: 10, description: 'Restores 10 health.' },
@@ -793,10 +748,6 @@ function starterGearForClass(className) {
   return (loadouts[className] || loadouts.Fighter).map(([slot, name, specification], index) => ({ slot, name, specification, type: 'gear', id: `gear-${className}-${index}` }));
 }
 
-// The character's race/class/stats/background are randomized for
-// flavor, but the character's name always matches the username the
-// player signed in with — that's their identity at the table, not a
-// randomly-picked codename.
 function createRandomCharacter() {
   const stats = getDefaultStats();
 
@@ -831,10 +782,7 @@ function createRandomCharacter() {
 async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true } = {}) {
   currentCharacter = createRandomCharacter();
   localStorage.setItem(RANDOM_CHAR_STORAGE_KEY, JSON.stringify(currentCharacter));
-  // Write the whole character to the shared players row (not just the
-  // name) so every other player at the table can see these stats too —
-  // previously this only ever lived in the creating player's own
-  // browser, which is why nobody else could see anyone's character sheet.
+  
   const { error: playerError } = await sb.from('players').update({
     display_name: currentCharacter.name,
     race: currentCharacter.race,
@@ -849,12 +797,6 @@ async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true 
   }).eq('session_id', sessionId).eq('user_id', currentUser.uid);
   if (playerError) throw playerError;
 
-  // Only the table's creator should ever trigger kickoff. If every
-  // joiner also called this, several kickoff calls could race each
-  // other right as a table filled up, and a late one that still saw
-  // an empty story history would reset the boss back to full health
-  // even after real combat turns had already landed — this is what
-  // was actually causing the boss bar to silently snap back to 100%.
   if (!triggerKickoff) {
     await refreshGameState();
     return;
@@ -871,10 +813,8 @@ async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true 
 }
 
 async function seedLocalOpening(sessionId) {
-  // Check if story already exists first
   const { data: session } = await sb.from('sessions').select('story_narrative, story_choices').eq('id', sessionId).single();
   
-  // Only seed if empty or stuck
   if (session && session.story_narrative && session.story_narrative !== 'The story is being written…' && session.story_choices?.length > 0) {
     console.log('Story already exists, skipping local seed');
     return;
@@ -979,16 +919,13 @@ $('btn-stats-close')?.addEventListener('click', () => {
   if (modal) modal.close();
 });
 
-// Close stats modal on backdrop click
 $('modal-character-stats')?.addEventListener('click', (e) => {
   if (e.target === e.currentTarget) {
     e.currentTarget.close();
   }
 });
 
-// ---------- All-Time Stats (permanent, cross-session — lives on the
-// profile, not the per-session player row, since a new players row
-// is created every time someone joins a table) ----------
+// ---------- All-Time Stats ----------
 async function openAllTimeStats() {
   const content = $('alltime-content');
   const modal = $('modal-alltime-stats');
@@ -1042,7 +979,6 @@ $('modal-alltime-stats')?.addEventListener('click', (e) => {
 
 // ---------- Game Screen ----------
 async function refreshGameState() {
-  // Debounce: clear any pending refresh
   if (refreshTimeout) {
     clearTimeout(refreshTimeout);
     refreshTimeout = null;
@@ -1057,10 +993,8 @@ async function refreshGameState() {
     ]);
     if (!session) return;
     
-    // Check if story actually changed
     const storyHash = (session.story_narrative || '') + (session.story_choices || []).join(',');
     if (storyHash === lastStoryVersion && session.status !== 'completed') {
-      // No change, skip re-render
       return;
     }
     lastStoryVersion = storyHash;
@@ -1090,9 +1024,6 @@ function renderPlayerStats(character) {
   }).join('')}</div>`;
 }
 
-// Spends one of the player's unallocated stat points (earned from
-// leveling up on souls) on a chosen ability score, capped at 20 to
-// match what the story engine is told the maximum is.
 async function allocateStatPoint(stat) {
   const me = latestPlayers.find(p => p.user_id === currentUser.uid);
   if (!me) return;
@@ -1131,11 +1062,6 @@ function renderPlayerGear(player) {
   `).join('')}</div>`;
 }
 
-// Kept identical (in spirit) to the ROOMS list in
-// supabase/functions/_shared/game.ts — the client can't import that
-// server-side file directly. Progression is unbounded now (the path
-// never ends), so room names cycle with a Roman-numeral suffix once
-// the party loops back around, same as the server's roomDisplayName().
 const ASHEN_ROOM_FLAVORS = [
   { name: 'Ash', flavor: 'A crumbling bonfire throws thin light across the ruins.' },
   { name: 'Gate', flavor: 'A broken gate watches over a road choked with ash.' },
@@ -1162,13 +1088,6 @@ function ashenRoomDisplayName(index) {
   return loop > 0 ? `${base} ${toRomanNumeral(loop + 1)}` : base;
 }
 
-// The map is a path now, not a grid of unrelated squares — nodes are
-// connected by a line, and it scrolls forward with the party instead
-// of being a fixed 9-square board. Only the CURRENT node ever shows
-// specific enemy info, and that info is read straight from live
-// session state (the same boss_name/boss_health shown above the
-// health bar) rather than an invented name, so the two can never say
-// two different things again.
 function renderAshenMap() {
   const map = $('mini-map');
   if (!map) return;
@@ -1177,8 +1096,6 @@ function renderAshenMap() {
     ? Math.max(0, latestSession.current_room_index)
     : 0;
 
-  // Show a short window of the path around where the party actually
-  // is: a couple of cleared rooms behind them, plus a few steps ahead.
   const windowStart = Math.max(0, currentIndex - 2);
   const windowEnd = currentIndex + 4;
   const indices = [];
@@ -1287,16 +1204,13 @@ function enterGame(sessionId) {
   refreshGameState();
   refreshChatMessages();
 
-  // FIX: Remove existing channel first
   if (gameChannel) {
     sb.removeChannel(gameChannel);
     gameChannel = null;
   }
   
-  // FIX: Create channel and add ALL listeners BEFORE subscribe
   gameChannel = sb.channel('game-' + sessionId);
   
-  // Add all listeners FIRST
   gameChannel
     .on('postgres_changes', { 
       event: '*', 
@@ -1317,7 +1231,6 @@ function enterGame(sessionId) {
       filter: `session_id=eq.${sessionId}` 
     }, refreshChatMessages);
   
-  // THEN subscribe
   gameChannel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
       console.log('Game channel connected for:', sessionId);
@@ -1363,6 +1276,317 @@ async function retryKickoff() {
   }
 }
 
+// ---------- AI Image Generation ----------
+let isGeneratingImage = false;
+let lastImagePrompt = '';
+
+async function generateSceneImage(sceneData) {
+  if (isGeneratingImage) return;
+  
+  const container = $('pixel-scene');
+  const loadingEl = $('pixel-loading');
+  const imageEl = $('pixel-image');
+  const canvasEl = $('pixel-canvas');
+  
+  if (!container || !sceneData) return;
+  
+  if (loadingEl) loadingEl.classList.remove('hidden');
+  if (imageEl) imageEl.classList.add('hidden');
+  
+  isGeneratingImage = true;
+  
+  try {
+    const prompt = buildImagePrompt(sceneData);
+    
+    if (prompt === lastImagePrompt && imageEl && !imageEl.classList.contains('hidden')) {
+      if (loadingEl) loadingEl.classList.add('hidden');
+      isGeneratingImage = false;
+      return;
+    }
+    
+    lastImagePrompt = prompt;
+    
+    const { data, error } = await sb.functions.invoke('generate-image', {
+      body: { 
+        prompt: prompt,
+        location: sceneData.location,
+        action: sceneData.action,
+        mood: sceneData.mood,
+      }
+    });
+    
+    if (error) throw error;
+    
+    if (data.imageUrl) {
+      if (imageEl) {
+        imageEl.src = data.imageUrl;
+        imageEl.classList.remove('hidden');
+        imageEl.style.opacity = '0';
+        await new Promise(resolve => setTimeout(resolve, 50));
+        imageEl.style.opacity = '1';
+      }
+      if (canvasEl) canvasEl.classList.add('hidden');
+      
+    } else if (data.placeholder) {
+      if (canvasEl) {
+        canvasEl.classList.remove('hidden');
+        renderFallbackPixelScene(canvasEl, sceneData);
+      }
+      if (imageEl) imageEl.classList.add('hidden');
+      
+    } else {
+      throw new Error('No image generated');
+    }
+    
+  } catch (error) {
+    console.warn('Image generation failed:', error);
+    if (canvasEl) {
+      canvasEl.classList.remove('hidden');
+      renderFallbackPixelScene(canvasEl, sceneData);
+    }
+    if (imageEl) imageEl.classList.add('hidden');
+    
+    const resultEl = $('pixel-result');
+    if (resultEl) {
+      resultEl.textContent = '✦ Pixel render';
+      resultEl.className = 'pixel-result';
+    }
+  }
+  
+  if (loadingEl) loadingEl.classList.add('hidden');
+  isGeneratingImage = false;
+}
+
+function buildImagePrompt(sceneData) {
+  const { location, action, mood, actor, target } = sceneData;
+  
+  let prompt = '';
+  
+  const locations = {
+    bonfire: 'a crumbling bonfire in a dark fantasy wasteland',
+    gate: 'a broken stone gate in an ashen wasteland',
+    forest: 'dark twisted trees in a dead forest',
+    shrine: 'an ancient half-collapsed shrine in the ruins',
+    crypt: 'a dark stone crypt with old graves',
+    tower: 'a shattered tower under a red lightning sky',
+    marsh: 'a misty marsh that swallows footsteps',
+    keep: 'a ruined stone keep with scarred walls',
+  };
+  prompt += locations[location] || 'a dark fantasy wasteland';
+  
+  if (action === 'attack' || action === 'hit') {
+    prompt += `, ${actor || 'a warrior'} attacking ${target || 'a monster'} with a weapon`;
+  } else if (action === 'heal') {
+    prompt += `, ${actor || 'a character'} being healed by a glowing light`;
+  } else if (action === 'search') {
+    prompt += `, ${actor || 'a character'} searching through the ashes for supplies`;
+  } else if (action === 'stealth') {
+    prompt += `, ${actor || 'a character'} hiding in the shadows`;
+  }
+  
+  if (mood === 'dark') prompt += ', dark and ominous atmosphere';
+  else if (mood === 'fire') prompt += ', warm firelight illuminating the scene';
+  else if (mood === 'combat') prompt += ', intense combat scene, sparks flying';
+  
+  return prompt;
+}
+
+// ---------- Fallback Pixel Art Renderer (canvas) ----------
+function renderFallbackPixelScene(canvas, sceneData) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  const p = 8;
+  
+  ctx.imageSmoothingEnabled = false;
+  
+  ctx.fillStyle = '#0a0806';
+  ctx.fillRect(0, 0, w, h);
+  
+  const colors = {
+    dark: ['#1a1010', '#0a0806'],
+    fire: ['#2a1a0a', '#0a0806'],
+    combat: ['#1a0a0a', '#0a0604'],
+  };
+  const sky = colors[sceneData.mood] || colors.dark;
+  for (let y = 0; y < h * 0.6; y += p) {
+    const t = y / (h * 0.6);
+    const r = parseInt(sky[0].slice(1,3), 16) + (parseInt(sky[1].slice(1,3), 16) - parseInt(sky[0].slice(1,3), 16)) * t;
+    const g = parseInt(sky[0].slice(3,5), 16) + (parseInt(sky[1].slice(3,5), 16) - parseInt(sky[0].slice(3,5), 16)) * t;
+    const b = parseInt(sky[0].slice(5,7), 16) + (parseInt(sky[1].slice(5,7), 16) - parseInt(sky[0].slice(5,7), 16)) * t;
+    ctx.fillStyle = `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+    ctx.fillRect(0, y, w, p);
+  }
+  
+  const groundY = h * 0.65;
+  ctx.fillStyle = '#1a1510';
+  ctx.fillRect(0, groundY, w, h - groundY);
+  
+  const cx = w / 2;
+  const cy = groundY + 20;
+  ctx.fillStyle = '#3a2a1a';
+  ctx.fillRect(cx - 20, cy - 4, 40, 12);
+  ctx.fillStyle = '#4a3a2a';
+  ctx.fillRect(cx - 24, cy, 48, 6);
+  
+  const flicker = Math.random() * 0.3 + 0.7;
+  ctx.fillStyle = `rgba(255, 180, 50, ${0.6 * flicker})`;
+  ctx.fillRect(cx - 12, cy - 30 * flicker, 24, 24);
+  ctx.fillStyle = `rgba(255, 100, 20, ${0.4 * flicker})`;
+  ctx.fillRect(cx - 6, cy - 40 * flicker, 12, 20);
+  
+  const px = w * 0.35;
+  const py = groundY - 10;
+  ctx.fillStyle = '#f0c477';
+  ctx.fillRect(px - 6, py - 24, 12, 24);
+  ctx.fillRect(px - 8, py - 32, 16, 10);
+  ctx.fillRect(px - 14, py - 16, 6, 6);
+  ctx.fillRect(px + 8, py - 16, 6, 6);
+  
+  const tx = w * 0.65;
+  const ty = groundY - 10;
+  ctx.fillStyle = '#e17055';
+  ctx.fillRect(tx - 8, ty - 28, 16, 28);
+  ctx.fillRect(tx - 10, ty - 38, 20, 12);
+  
+  ctx.fillStyle = '#8a7a6a';
+  ctx.fillRect(tx + 14, ty - 28, 4, 24);
+  
+  if (sceneData.action === 'attack' || sceneData.action === 'hit') {
+    for (let i = 0; i < 15; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * 30 + 5;
+      const size = Math.random() * 4 + 1;
+      ctx.fillStyle = `rgba(255, 200, 100, ${Math.random() * 0.8 + 0.2})`;
+      ctx.fillRect(
+        tx + Math.cos(angle) * dist,
+        ty - 20 + Math.sin(angle) * dist,
+        size, size
+      );
+    }
+  }
+}
+
+// ---------- Pixel Scene Functions ----------
+function parseSceneFromStory(last, session) {
+  const choice = (last.choice || '').toLowerCase();
+  const player = last.player || 'Someone';
+  const enemyName = session.boss_name || 'enemy';
+  
+  let location = 'ash';
+  if (session.current_room_index !== undefined) {
+    const roomIndex = session.current_room_index % 8;
+    const rooms = ['bonfire', 'gate', 'forest', 'shrine', 'crypt', 'tower', 'marsh', 'keep'];
+    location = rooms[roomIndex] || 'ash';
+  }
+  
+  let action = 'neutral';
+  let target = null;
+  
+  if (choice.includes('attack') || choice.includes('strike') || choice.includes('fight')) {
+    action = 'attack';
+    target = enemyName;
+  } else if (choice.includes('heal') || choice.includes('rest')) {
+    action = 'heal';
+  } else if (choice.includes('search') || choice.includes('investigate')) {
+    action = 'search';
+  } else if (choice.includes('sneak') || choice.includes('stealth') || choice.includes('hide')) {
+    action = 'stealth';
+  } else if (last.impact !== undefined && last.impact < 0) {
+    action = 'hit';
+    target = player;
+  } else if (last.impact !== undefined && last.impact > 0) {
+    action = 'heal';
+  }
+  
+  let mood = 'neutral';
+  if (action === 'attack' || action === 'hit') {
+    mood = 'combat';
+  } else if (location === 'bonfire') {
+    mood = 'fire';
+  } else if (location === 'crypt' || location === 'tower') {
+    mood = 'dark';
+  }
+  
+  return {
+    location,
+    action,
+    mood,
+    actor: player,
+    target: target || null,
+    allies: session.players ? session.players.filter(p => p.is_alive).map(p => p.display_name) : [],
+  };
+}
+
+function updatePixelOverlay(last) {
+  const playerEl = $('pixel-player');
+  const actionEl = $('pixel-action');
+  const targetEl = $('pixel-target');
+  const rollEl = $('pixel-roll');
+  const resultEl = $('pixel-result');
+  
+  if (playerEl) playerEl.textContent = last.player || 'Someone';
+  if (actionEl) actionEl.textContent = last.choice || 'acted';
+  if (targetEl) {
+    const enemyName = latestSession?.boss_name || 'enemy';
+    if (last.impact !== undefined && last.impact < 0) {
+      targetEl.textContent = `→ ${enemyName}`;
+    } else {
+      targetEl.textContent = '';
+    }
+  }
+  
+  if (rollEl) {
+    if (last.roll) {
+      rollEl.textContent = `🎲 ${last.roll}`;
+      rollEl.style.display = 'inline-block';
+    } else {
+      rollEl.style.display = 'none';
+    }
+  }
+  
+  if (resultEl) {
+    if (last.impact !== undefined && last.impact !== null) {
+      if (last.impact < 0) {
+        resultEl.textContent = `💔 ${Math.abs(last.impact)} HP`;
+        resultEl.className = 'pixel-result damage';
+      } else if (last.impact > 0) {
+        resultEl.textContent = `💚 +${last.impact} HP`;
+        resultEl.className = 'pixel-result heal';
+      } else {
+        resultEl.textContent = '✦ 0 HP';
+        resultEl.className = 'pixel-result';
+      }
+    } else {
+      resultEl.textContent = '';
+    }
+  }
+}
+
+async function updatePixelScene() {
+  const container = $('pixel-scene');
+  if (!container || !latestSession) return;
+  
+  const history = latestSession.story_history || [];
+  if (history.length === 0) {
+    container.classList.add('hidden');
+    return;
+  }
+  
+  const last = history[history.length - 1];
+  container.classList.remove('hidden');
+  
+  const sceneData = parseSceneFromStory(last, latestSession);
+  
+  updatePixelOverlay(last);
+  
+  await generateSceneImage(sceneData);
+  
+  container.classList.remove('flash');
+  void container.offsetWidth;
+  container.classList.add('flash');
+}
+
 // ---------- Render Game ----------
 function renderGame() {
   if (!latestSession) return;
@@ -1370,19 +1594,10 @@ function renderGame() {
   updatePixelScene(); 
   renderHallOfDead();
 
-  // Rooms 0 (Ash) and 3 (Shrine) in the cycle are safe zones — kept
-  // in sync with the safeZone flags on ROOMS in
-  // supabase/functions/_shared/game.ts (the client can't import that
-  // file directly). When the party is in one, there's no enemy at
-  // all, so the boss/monster health bar is replaced by a calm banner
-  // instead of showing stale or zeroed-out combat info.
   const SAFE_ZONE_ROOM_SLOTS = new Set([0, 3]);
   const currentRoomIdx = Number.isInteger(latestSession?.current_room_index) ? latestSession.current_room_index : 0;
   const inSafeZoneNow = SAFE_ZONE_ROOM_SLOTS.has(currentRoomIdx % 8);
 
-  // Enemy Health Bar (regular monster or boss — same bar either way,
-  // but bosses get the dramatic phase framing and a badge; regular
-  // monsters get a plainer label so they don't feel falsely epic).
   const bossNameEl = $('boss-name');
   const bossHealthNumEl = $('boss-health-num');
   const bossHealthFillEl = $('boss-health-fill');
@@ -1415,263 +1630,7 @@ function renderGame() {
       ? 'var(--text-muted)'
       : (bossPct <= 25 ? 'linear-gradient(135deg, #636e72, #2d3436)' : 'linear-gradient(135deg, #e17055, #d63031)');
   }
-  const last = history[history.length - 1];
-  container.classList.remove('hidden', 'replaying');
-  
-  const playerEl = container.querySelector('.last-action-player');
-  const timestampEl = container.querySelector('.last-action-timestamp');
-  const choiceEl = container.querySelector('.last-action-choice');
-  const rollEl = container.querySelector('.last-action-roll');
-  const outcomeEl = container.querySelector('.last-action-outcome');
-  
-  if (playerEl) playerEl.textContent = last.player || 'Someone';
-  
-  if (timestampEl) {
-    const now = Date.now();
-    const then = last.timestamp || now;
-    const diff = Math.floor((now - then) / 1000);
-    if (diff < 60) timestampEl.textContent = 'just now';
-    else if (diff < 3600) timestampEl.textContent = `${Math.floor(diff / 60)}m ago`;
-    else timestampEl.textContent = `${Math.floor(diff / 3600)}h ago`;
-  }
-  
-  if (choiceEl) {
-    choiceEl.textContent = last.choice || 'acted';
-  }
-  
-  if (rollEl) {
-    if (last.roll) {
-      rollEl.textContent = `🎲 ${last.roll}${last.rollLabel ? ` · ${last.rollLabel}` : ''}`;
-      rollEl.style.display = 'inline-block';
-    } else {
-      rollEl.style.display = 'none';
-    }
-  }
-  
-  if (outcomeEl) {
-    let outcome = last.outcome || '';
-    if (last.impact !== undefined && last.impact !== null) {
-      const impactText = last.impact < 0 ? `💔 ${Math.abs(last.impact)} HP lost` : 
-                         last.impact > 0 ? `💚 +${last.impact} HP` : '';
-      if (impactText) {
-        outcome = outcome + (outcome ? ' — ' : '') + impactText;
-      }
-    }
-    if (last.loot) {
-      outcome = outcome + (outcome ? ' — ' : '') + `📦 Found: ${last.loot}`;
-    }
-    outcomeEl.textContent = outcome || 'The action was taken.';
-  }
-}
-// ---------- AI Image Generation ----------
-let isGeneratingImage = false;
-let lastImagePrompt = '';
 
-async function generateSceneImage(sceneData) {
-  if (isGeneratingImage) return;
-  
-  const container = $('pixel-scene');
-  const loadingEl = $('pixel-loading');
-  const imageEl = $('pixel-image');
-  const canvasEl = $('pixel-canvas');
-  
-  if (!container || !sceneData) return;
-  
-  // Show loading
-  if (loadingEl) loadingEl.classList.remove('hidden');
-  if (imageEl) imageEl.classList.add('hidden');
-  
-  isGeneratingImage = true;
-  
-  try {
-    // Build the prompt from scene data
-    const prompt = buildImagePrompt(sceneData);
-    
-    // Don't regenerate if same as last
-    if (prompt === lastImagePrompt && imageEl && !imageEl.classList.contains('hidden')) {
-      if (loadingEl) loadingEl.classList.add('hidden');
-      isGeneratingImage = false;
-      return;
-    }
-    
-    lastImagePrompt = prompt;
-    
-    // Call the Edge Function
-    const { data, error } = await sb.functions.invoke('generate-image', {
-      body: { 
-        prompt: prompt,  // This is the visual prompt
-        location: sceneData.location,
-        action: sceneData.action,
-        mood: sceneData.mood,
-      }
-    });
-    
-    if (error) throw error;
-    
-    if (data.imageUrl) {
-      // Display the generated image
-      if (imageEl) {
-        imageEl.src = data.imageUrl;
-        imageEl.classList.remove('hidden');
-        imageEl.style.opacity = '0';
-        await new Promise(resolve => setTimeout(resolve, 50));
-        imageEl.style.opacity = '1';
-      }
-      if (canvasEl) canvasEl.classList.add('hidden');
-      
-    } else if (data.placeholder) {
-      // Use fallback pixel renderer
-      if (canvasEl) {
-        canvasEl.classList.remove('hidden');
-        renderFallbackPixelScene(canvasEl, sceneData);
-      }
-      if (imageEl) imageEl.classList.add('hidden');
-      
-    } else {
-      throw new Error('No image generated');
-    }
-    
-  } catch (error) {
-    console.warn('Image generation failed:', error);
-    // Use fallback pixel renderer
-    if (canvasEl) {
-      canvasEl.classList.remove('hidden');
-      renderFallbackPixelScene(canvasEl, sceneData);
-    }
-    if (imageEl) imageEl.classList.add('hidden');
-    
-    const resultEl = $('pixel-result');
-    if (resultEl) {
-      resultEl.textContent = '✦ Pixel render';
-      resultEl.className = 'pixel-result';
-    }
-  }
-  
-  if (loadingEl) loadingEl.classList.add('hidden');
-  isGeneratingImage = false;
-}
-
-function buildImagePrompt(sceneData) {
-  const { location, action, mood, actor, target } = sceneData;
-  
-  let prompt = '';
-  
-  // Location
-  const locations = {
-    bonfire: 'a crumbling bonfire in a dark fantasy wasteland',
-    gate: 'a broken stone gate in an ashen wasteland',
-    forest: 'dark twisted trees in a dead forest',
-    shrine: 'an ancient half-collapsed shrine in the ruins',
-    crypt: 'a dark stone crypt with old graves',
-    tower: 'a shattered tower under a red lightning sky',
-    marsh: 'a misty marsh that swallows footsteps',
-    keep: 'a ruined stone keep with scarred walls',
-  };
-  prompt += locations[location] || 'a dark fantasy wasteland';
-  
-  // Action
-  if (action === 'attack' || action === 'hit') {
-    prompt += `, ${actor || 'a warrior'} attacking ${target || 'a monster'} with a weapon`;
-  } else if (action === 'heal') {
-    prompt += `, ${actor || 'a character'} being healed by a glowing light`;
-  } else if (action === 'search') {
-    prompt += `, ${actor || 'a character'} searching through the ashes for supplies`;
-  } else if (action === 'stealth') {
-    prompt += `, ${actor || 'a character'} hiding in the shadows`;
-  }
-  
-  // Mood
-  if (mood === 'dark') prompt += ', dark and ominous atmosphere';
-  else if (mood === 'fire') prompt += ', warm firelight illuminating the scene';
-  else if (mood === 'combat') prompt += ', intense combat scene, sparks flying';
-  
-  return prompt;
-}
-
-// ---------- Fallback Pixel Art Renderer (canvas) ----------
-function renderFallbackPixelScene(canvas, sceneData) {
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-  const p = 8; // pixel size
-  
-  ctx.imageSmoothingEnabled = false;
-  
-  // Clear
-  ctx.fillStyle = '#0a0806';
-  ctx.fillRect(0, 0, w, h);
-  
-  // Sky gradient
-  const colors = {
-    dark: ['#1a1010', '#0a0806'],
-    fire: ['#2a1a0a', '#0a0806'],
-    combat: ['#1a0a0a', '#0a0604'],
-  };
-  const sky = colors[sceneData.mood] || colors.dark;
-  for (let y = 0; y < h * 0.6; y += p) {
-    const t = y / (h * 0.6);
-    const r = parseInt(sky[0].slice(1,3), 16) + (parseInt(sky[1].slice(1,3), 16) - parseInt(sky[0].slice(1,3), 16)) * t;
-    const g = parseInt(sky[0].slice(3,5), 16) + (parseInt(sky[1].slice(3,5), 16) - parseInt(sky[0].slice(3,5), 16)) * t;
-    const b = parseInt(sky[0].slice(5,7), 16) + (parseInt(sky[1].slice(5,7), 16) - parseInt(sky[0].slice(5,7), 16)) * t;
-    ctx.fillStyle = `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
-    ctx.fillRect(0, y, w, p);
-  }
-  
-  // Ground
-  const groundY = h * 0.65;
-  ctx.fillStyle = '#1a1510';
-  ctx.fillRect(0, groundY, w, h - groundY);
-  
-  // Bonfire
-  const cx = w / 2;
-  const cy = groundY + 20;
-  ctx.fillStyle = '#3a2a1a';
-  ctx.fillRect(cx - 20, cy - 4, 40, 12);
-  ctx.fillStyle = '#4a3a2a';
-  ctx.fillRect(cx - 24, cy, 48, 6);
-  
-  // Fire
-  const flicker = Math.random() * 0.3 + 0.7;
-  ctx.fillStyle = `rgba(255, 180, 50, ${0.6 * flicker})`;
-  ctx.fillRect(cx - 12, cy - 30 * flicker, 24, 24);
-  ctx.fillStyle = `rgba(255, 100, 20, ${0.4 * flicker})`;
-  ctx.fillRect(cx - 6, cy - 40 * flicker, 12, 20);
-  
-  // Actor (player)
-  const px = w * 0.35;
-  const py = groundY - 10;
-  ctx.fillStyle = '#f0c477';
-  ctx.fillRect(px - 6, py - 24, 12, 24);
-  ctx.fillRect(px - 8, py - 32, 16, 10);
-  ctx.fillRect(px - 14, py - 16, 6, 6);
-  ctx.fillRect(px + 8, py - 16, 6, 6);
-  
-  // Target (enemy)
-  const tx = w * 0.65;
-  const ty = groundY - 10;
-  ctx.fillStyle = '#e17055';
-  ctx.fillRect(tx - 8, ty - 28, 16, 28);
-  ctx.fillRect(tx - 10, ty - 38, 20, 12);
-  
-  // Enemy weapon
-  ctx.fillStyle = '#8a7a6a';
-  ctx.fillRect(tx + 14, ty - 28, 4, 24);
-  
-  // Hit sparks if attacking
-  if (sceneData.action === 'attack' || sceneData.action === 'hit') {
-    for (let i = 0; i < 15; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = Math.random() * 30 + 5;
-      const size = Math.random() * 4 + 1;
-      ctx.fillStyle = `rgba(255, 200, 100, ${Math.random() * 0.8 + 0.2})`;
-      ctx.fillRect(
-        tx + Math.cos(angle) * dist,
-        ty - 20 + Math.sin(angle) * dist,
-        size, size
-      );
-    }
-  }
-}
   // Player List
   const list = $('player-list');
   if (list) {
@@ -1682,9 +1641,6 @@ function renderFallbackPixelScene(canvas, sceneData) {
       const maxHealth = Math.max(1, Number(p.max_health || 100));
       const pct = Math.max(0, Math.min(100, (p.health / maxHealth) * 100));
       const color = pct > 55 ? 'var(--health-full)' : pct > 25 ? 'var(--health-mid)' : 'var(--health-low)';
-      // Character stats live directly on the player row now (race,
-      // class, and the six ability scores), so this works the same
-      // way for every player at the table, not just yourself.
       const character = {
         name: p.display_name,
         race: p.race,
@@ -1797,11 +1753,6 @@ function renderFallbackPixelScene(canvas, sceneData) {
   if (storyTextEl) storyTextEl.textContent = latestSession.story_narrative || '';
 
   // Choices
-  // Default is turn-based — only the acting player can choose, same
-  // as before voting was added. If they're not sure, they can hit
-  // "Put it to a vote" instead of picking directly, which is the
-  // *only* way a vote ever starts — it's an escape hatch, not the
-  // default flow for every single choice.
   const isMyTurn = currentTurnUid === currentUser.uid && latestSession.status === 'active';
   const alivePlayers = latestPlayers.filter(player => player.is_alive);
   const iAmAlive = alivePlayers.some(player => player.user_id === currentUser.uid);
@@ -1815,8 +1766,6 @@ function renderFallbackPixelScene(canvas, sceneData) {
     } else if (!choices.length || latestSession.status !== 'active') {
       choicesEl.innerHTML = '';
     } else if (voteState) {
-      // A vote is in progress — everyone alive can vote on the same
-      // three choices, one vote each, live counts shown as they come in.
       const votes = voteState.votes || {};
       const hasVoted = Object.prototype.hasOwnProperty.call(votes, currentUser.uid);
       choicesEl.innerHTML = choices.map((c, i) => {
@@ -1871,9 +1820,7 @@ function renderFallbackPixelScene(canvas, sceneData) {
     }
   }
 
-  // Inventory — only shown to the acting player, on their own turn,
-  // so items can only ever be used as your one action for the turn
-  // (same rule as picking a story choice).
+  // Inventory
   const inventoryPanel = $('inventory-panel');
   const inventoryList = $('inventory-list');
   if (inventoryPanel && inventoryList) {
@@ -1937,7 +1884,7 @@ async function useItem(itemId) {
   }
 }
 
-// ---------- Submit Choice (turn-based — only the acting player calls this) ----------
+// ---------- Submit Choice ----------
 async function submitChoice(choiceIndex) {
   if (isGeneratingStory) {
     toast('Story is already being generated...', 2000);
@@ -1965,11 +1912,7 @@ async function submitChoice(choiceIndex) {
   }
 }
 
-// ---------- Party vote (opt-in escape hatch, not the default flow) ----------
-// Only the current-turn player can trigger this — everyone else just
-// waits for their turn normally. Once started, every alive player
-// gets one vote on the same three choices; the majority pick gets
-// submitted the moment the last vote comes in.
+// ---------- Party Vote ----------
 async function startVote() {
   const { error } = await sb.from('sessions')
     .update({ vote_state: { active: true, votes: {} } })
@@ -2116,7 +2059,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ---------- Keyboard Shortcuts ----------
 document.addEventListener('keydown', (e) => {
-  // Number keys 1-3 for choices
   if (e.key >= '1' && e.key <= '3') {
     const choiceBtn = document.querySelector(`.choice-btn[data-choice="${parseInt(e.key) - 1}"]`);
     if (choiceBtn && !choiceBtn.disabled) {
@@ -2124,7 +2066,8 @@ document.addEventListener('keydown', (e) => {
     }
   }
 });
-// Replay scene button
+
+// ---------- Replay Pixel Scene ----------
 $('btn-replay-pixel')?.addEventListener('click', () => {
   const container = $('pixel-scene');
   if (!container) return;
@@ -2135,7 +2078,6 @@ $('btn-replay-pixel')?.addEventListener('click', () => {
   
   sounds.playClick();
   
-  // Re-generate the scene
   const history = latestSession?.story_history || [];
   if (history.length > 0) {
     const sceneData = parseSceneFromStory(history[history.length - 1], latestSession);
