@@ -1,25 +1,23 @@
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.46.0';
 import { callStoryteller } from './storyteller.ts';
 
-const SYSTEM_PROMPT = `You are the AI Storyteller for "Stackfall: Ashen Edition", a grim, melancholic dark-fantasy survival RPG. Every choice matters, death is permanent unless the engine explicitly reports resurrection, and the party is fighting a living boss with a health bar.
+const SYSTEM_PROMPT = `You are the AI Storyteller for "Stackfall: Ashen Edition", a grim, melancholic dark-fantasy survival RPG. Every choice matters, death is permanent unless the engine explicitly reports resurrection, and the party is fighting a living enemy with a health bar — sometimes a regular monster, sometimes a boss. The engine tells you which one and its name; never invent a different name for it.
 All characters begin from STR 10, DEX 10, CON 10, INT 10, WIS 10, CHA 10 before coherent racial, class, and background bonuses. Use the modifier bands from -5 to +5 for ability checks. Starting HP is class-based from 6-12 plus CON modifier. The engine applies the mechanics; you narrate their consequences.
 Use tabletop-style rules in your reasoning: initiative is d20 + DEX, attacks use d20 + STR/DEX + weapon bonus, damage uses weapon dice + STR/DEX, AC is 10 + DEX + armor + shield. Exploration may test STR 14 to climb, DEX 12 to pick locks, WIS 12 to perceive, INT 15 to decipher, CHA 13 to persuade, or CON 14 to survive. Social actions may use persuasion, intimidation, deception, inspiration, or insight with the relevant ability and background or item.
 Write intense, thrilling, vivid prose (45-90 words) with real stakes — never bland or generic. Weave in the acting player's race, class, personality, relevant ability, and inventory when they fit naturally.
-Do NOT state exact numbers, health totals, or damage totals in prose — the game engine reports those separately. Always make combat feel cinematic, and make death somber and memorable.
+Do NOT state exact numbers, health totals, damage totals, or soul totals in prose — the game engine reports those separately and awards souls only for an actual kill, not for narrative color.
 You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching exactly:
-{"narrative": string, "healthImpact": number, "bossImpact": number, "relevantStat": string, "soulsGained": number, "choices": [string, string, string]}
+{"narrative": string, "healthImpact": number, "bossImpact": number, "relevantStat": string, "choices": [string, string, string]}
 - "narrative" continues the story and describes the outcome of the acting player's last choice (or opens the tale if there is no prior choice). Keep enough ambiguity that the true severity could still go either way — the actual numbers are randomized by the engine afterward, so don't commit to a precise result in the prose.
 - "healthImpact" is your baseline suggestion for the ACTING PLAYER, an integer between -35 and 15 (negative = damage, positive = healing/relief).
-- "bossImpact" is your baseline suggestion for the BOSS, an integer between -30 and 10 (negative = damage dealt to the boss, positive = the boss recovering or gaining ground) — most actions aimed at the boss should deal some damage; actions that don't engage the boss directly can use 0.
+- "bossImpact" is your baseline suggestion for the CURRENT ENEMY (monster or boss, whichever the engine told you is active), an integer between -30 and 10 (negative = damage dealt to it, positive = it recovering or gaining ground) — most actions aimed at the enemy should deal some damage; actions that don't engage it directly can use 0.
 - "relevantStat" is exactly one of: strength, dexterity, constitution, intelligence, wisdom, charisma — whichever ability best explains why this action might succeed or fail.
-- "soulsGained" is an integer from 0 to 5000. Souls are both currency and XP; award them for meaningful victories, not ordinary movement.
-- Souls pay for levels at 100 × current level. Each level grants 3 stat points; the maximum level and stat are 99 and 20. Mention physical or mental transformation when a level-up occurs, but leave allocation to the player.
+- Souls pay for levels at 100 × current level. Each level grants 3 stat points; the maximum level and stat are 99 and 20. The engine awards souls only when an enemy is actually defeated — never mention a specific soul amount yourself.
 - Inventory uses weapon, off-hand, armor, helm, boots, ring1, and ring2 slots. Items may have requirements, bonuses, consumable effects, and weight; never grant impossible equipment without narrative justification.
-- Enemies are territorial: place them in named regions, show them before they notice the party, and offer fight, sneak, observe, bait, or retreat. Enemies do not chase beyond their territory and respawn when the party rests at a bonfire.
-- Bosses belong to marked lairs and do not roam. Treat entering a lair as the deliberate trigger for the boss encounter; a boss room should close behind the party only after engagement. Describe boss phases at 75%, 50%, and 25% HP thresholds.
+- Regular monsters are territorial: place them in named regions, show them before they notice the party, and offer fight, sneak, observe, bait, or retreat. Bosses do not roam and are noticeably tougher and more dangerous than a regular monster — describe boss phases at 75%, 50%, and 25% HP thresholds when the engine tells you the current enemy is a boss.
 - Always describe visible enemies and their behavior before combat. A stealth action uses DEX, retreat uses CHA, and observation uses WIS when those approaches fit the scene.
 - For a fallen character, remember their achievements and treat Ghost Mode as a spectator state. Resurrection, when permitted by the engine, costs 1,000 souls and may grant a permanent Flame-Touched-style mark.
-- Death is permanent unless the engine explicitly reports a resurrection. Narrate death with weight and never resolve resurrection or level-up math yourself.
+- Death is permanent unless the engine explicitly reports a resurrection. Narrate death with weight and never resolve resurrection, souls, or level-up math yourself.
 - "choices" are exactly three distinct, contextually relevant options for the NEXT player's turn, each under 70 characters, written as second-person actions.`;
 
 const ABILITY_KEYS = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'] as const;
@@ -34,32 +32,105 @@ const BOSS_NAMES = [
   'Vaelgrim the Ember-Eater',
 ];
 
-// The canonical world map. This is the single source of truth for
-// room names/flavor/tags — the client's Ashen Map keeps an identical
-// copy (it can't import this file directly), but the *position*
-// within this list now lives only here, in sessions.current_room_index,
-// so the map and the story are reading the exact same state instead of
-// two independent guesses that could silently drift apart.
-const ROOMS = [
-  { name: 'Ash', kind: 'Safe zone', flavor: 'Rest at the bonfire and prepare.', tags: [['Exits', 'Gate, Garden']] },
-  { name: 'Gate', kind: 'Enemy territory', flavor: 'Hollow Soldiers patrol the gate and watch the road.', tags: [['Enemies', '3 Hollow Soldiers'], ['Aggro range', '30 ft'], ['Exits', 'Ash, Shrine']] },
-  { name: 'Garden', kind: 'Enemy territory', flavor: 'Beasts stalk the darkroot paths between the trees.', tags: [['Enemies', 'Forest Beasts'], ['Aggro range', '50 ft'], ['Exits', 'Ash, Throne']] },
-  { name: 'Shrine', kind: 'Safe zone', flavor: 'The fire remembers your name. Wounds may be tended here.', tags: [['Bonfire', 'Rest, level up, manage inventory'], ['Exits', 'Ash, Crypt']] },
-  { name: 'Crypt', kind: 'Enemy territory', flavor: 'Skeletons wait beneath the old stones and broken graves.', tags: [['Enemies', 'Skeletons'], ['Aggro range', '40 ft'], ['Exits', 'Shrine, Tower']] },
-  { name: 'Tower', kind: 'Enemy territory', flavor: 'Knights defend a broken tower under red lightning.', tags: [['Enemies', 'Knights'], ['Aggro range', '40 ft'], ['Exits', 'Crypt, Marsh']] },
-  { name: 'Marsh', kind: 'Enemy territory', flavor: 'Infected wander through the mist, hunting movement.', tags: [['Enemies', 'Infected'], ['Aggro range', '40 ft'], ['Exits', 'Garden, Keep']] },
-  { name: 'Keep', kind: 'Enemy territory', flavor: 'Thieves guard the sealed keep and its hidden routes.', tags: [['Enemies', 'Thieves'], ['Aggro range', '40 ft'], ['Exits', 'Marsh, Throne']] },
-  { name: 'Throne', kind: 'Boss lair', flavor: 'The throne room belongs to the Ashen Sovereign. Enter only when ready.', tags: [['Boss', 'Ashen Sovereign'], ['Lair', ''], ['Exits', 'Keep']] },
+const MONSTER_NAMES = [
+  'Hollow Soldier',
+  'Ashen Wraith',
+  'Rotcrawler',
+  'Bloated Ghast',
+  'Crypt Rat Swarm',
+  'Marsh Leech',
+  'Broken Sentinel',
+  'Starving Hound',
 ];
 
-// How many real turns (not counting party-splash pseudo-entries) it
-// takes to advance one room. Kept as a named constant so it's easy
-// to find and tune later — was previously a magic "/2" scattered on
-// the client with no server equivalent at all.
-const TURNS_PER_ROOM = 2;
+// The canonical world map. This is the single source of truth for
+// room flavor — the client's Ashen Map keeps an identical copy (it
+// can't import this file directly), but the *position* within it
+// lives only here, in sessions.current_room_index. Progression is
+// now unbounded (the path never ends), so room names cycle through
+// this list with a Roman-numeral suffix once the party loops back
+// around — see roomDisplayName().
+const ROOMS = [
+  { name: 'Ash', flavor: 'A crumbling bonfire throws thin light across the ruins.' },
+  { name: 'Gate', flavor: 'A broken gate watches over a road choked with ash.' },
+  { name: 'Garden', flavor: 'Darkroot paths wind between trees that no longer grow.' },
+  { name: 'Shrine', flavor: 'An old shrine, half-collapsed, still smells of incense.' },
+  { name: 'Crypt', flavor: 'Old stones and broken graves line a sunken crypt.' },
+  { name: 'Tower', flavor: 'A shattered tower stands under a sky of red lightning.' },
+  { name: 'Marsh', flavor: 'Mist clings low over a marsh that swallows footsteps.' },
+  { name: 'Keep', flavor: 'A sealed keep, its walls scarred by some old siege.' },
+];
 
-function roomIndexForTurnCount(turnsTaken: number): number {
-  return Math.min(ROOMS.length - 1, Math.floor(turnsTaken / TURNS_PER_ROOM));
+const ROMAN_NUMERALS: Array<[number, string]> = [
+  [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'],
+  [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I'],
+];
+
+function toRoman(n: number): string {
+  let result = '';
+  for (const [value, symbol] of ROMAN_NUMERALS) {
+    while (n >= value) { result += symbol; n -= value; }
+  }
+  return result;
+}
+
+// e.g. room index 8 is a second pass through "Ash" -> "Ash II".
+function roomDisplayName(index: number): string {
+  const loop = Math.floor(index / ROOMS.length);
+  const base = ROOMS[index % ROOMS.length].name;
+  return loop > 0 ? `${base} ${toRoman(loop + 1)}` : base;
+}
+
+// Every 5th encounter in a room is a boss; the four before it are
+// regular monsters. Kept as a named constant so "bosses every 5
+// levels" is one obvious number to tune, not something buried in
+// arithmetic scattered around the file.
+const ENCOUNTERS_PER_BOSS = 5;
+
+function isBossEncounterNumber(n: number): boolean {
+  return n % ENCOUNTERS_PER_BOSS === 0;
+}
+
+// Difficulty scales with how many rooms the party has cleared.
+// current_room_index only advances when a boss is actually
+// defeated, so this ramps up permanently and smoothly as the party
+// goes deeper — it never resets.
+function monsterMaxHealthFor(roomIndex: number): number {
+  return Math.min(300, 30 + roomIndex * 8);
+}
+
+// Bosses are always meaningfully tougher than a regular monster at
+// the same depth, and that gap widens the deeper the party goes —
+// this is what makes them "stronger and harder to kill" rather than
+// just a differently-named monster with the same stats.
+function bossMaxHealthFor(roomIndex: number, playerCount: number): number {
+  return Math.min(1500, 90 + roomIndex * 30 + playerCount * 15);
+}
+
+function pickEnemyName(isBoss: boolean): string {
+  const pool = isBoss ? BOSS_NAMES : MONSTER_NAMES;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+type Encounter = { name: string; maxHealth: number; isBoss: boolean };
+
+function spawnEncounter(roomIndex: number, encounterNumber: number, playerCount: number): Encounter {
+  const isBoss = isBossEncounterNumber(encounterNumber);
+  return {
+    name: pickEnemyName(isBoss),
+    maxHealth: isBoss ? bossMaxHealthFor(roomIndex, playerCount) : monsterMaxHealthFor(roomIndex),
+    isBoss,
+  };
+}
+
+// Souls are awarded ONLY at the moment an enemy is actually
+// defeated — never for ordinary narrative success — and a boss
+// kill is worth substantially more than a regular monster, scaled
+// by depth so early and late kills don't feel the same.
+function soulsForDefeat(isBoss: boolean, roomIndex: number): number {
+  const base = isBoss ? 200 : 40;
+  const scaled = base + roomIndex * (isBoss ? 40 : 8);
+  return Math.min(5000, scaled);
 }
 
 // Deterministic items — their effects never depend on the story engine,
@@ -68,8 +139,8 @@ function roomIndexForTurnCount(turnsTaken: number): number {
 const ITEM_POOL = [
   { name: 'Healing Potion', type: 'heal', value: 10, description: 'Restores 10 health.' },
   { name: 'Field Rations', type: 'heal', value: 10, description: 'Restores 10 health.' },
-  { name: 'Warhorn', type: 'damage_boss', value: 15, description: "Deals 15 damage to the boss." },
-  { name: "Alchemist's Fire", type: 'damage_boss', value: 10, selfDamage: 5, description: 'Deals 10 damage to the boss, but 5 to you.' },
+  { name: 'Warhorn', type: 'damage_boss', value: 15, description: "Deals 15 damage to the current enemy." },
+  { name: "Alchemist's Fire", type: 'damage_boss', value: 10, selfDamage: 5, description: 'Deals 10 damage to the current enemy, but 5 to you.' },
 ] as const;
 
 function getRuntimeEnv(name: string): string {
@@ -140,7 +211,7 @@ function resolveModifier(player: any, relevantStat?: string): { modifier: number
 // strong, relevant stat makes good rolls a bit better and bad rolls
 // a bit milder, without ever guaranteeing the result outright. The
 // same roll drives both the acting player's outcome and how much
-// damage lands on the boss, so one die decides the whole beat.
+// damage lands on the current enemy, so one die decides the whole beat.
 type RollOutcome = {
   roll: number;
   modifier: number;
@@ -205,7 +276,7 @@ function applyRollToPlayerImpact(baseImpact: number, roll: RollOutcome): number 
   return Math.max(-40, Math.min(20, impact));
 }
 
-function applyRollToBossImpact(baseImpact: number, roll: RollOutcome): number {
+function applyRollToEnemyImpact(baseImpact: number, roll: RollOutcome): number {
   const damagePortion = Math.min(0, baseImpact); // only the damage side scales with the roll
   if (roll.isCritFail) {
     return Math.round(damagePortion * 0.2); // barely scratched it
@@ -229,10 +300,10 @@ function statusForHealth(health: number, maxHealth: number): string {
   return ratio <= 0.25 ? 'Critical' : ratio <= 0.55 ? 'Wounded' : 'Healthy';
 }
 
-function describeBossImpact(bossName: string, impact: number): string {
-  if (impact < 0) return `${bossName} takes ${Math.abs(impact)} damage.`;
-  if (impact > 0) return `${bossName} recovers ${impact} health.`;
-  return `${bossName} shrugs off the attempt.`;
+function describeEnemyImpact(enemyName: string, impact: number): string {
+  if (impact < 0) return `${enemyName} takes ${Math.abs(impact)} damage.`;
+  if (impact > 0) return `${enemyName} recovers ${impact} health.`;
+  return `${enemyName} shrugs off the attempt.`;
 }
 
 function fallbackStory(kickoff: boolean, actingName: string) {
@@ -255,8 +326,80 @@ function fallbackStory(kickoff: boolean, actingName: string) {
   };
 }
 
-function bossMaxHealthFor(playerCount: number): number {
-  return Math.min(160, Math.max(60, playerCount * 30 + 30));
+// Souls/leveling math, shared between the item-use kill path and the
+// normal-turn kill path so they can never drift out of sync with
+// each other.
+function applySoulsAndLevel(player: any, soulsGained: number) {
+  const currentSouls = Math.max(0, Number(player.souls || 0));
+  const currentLevel = Math.max(1, Math.min(99, Number(player.level || 1)));
+  const priorPoints = Math.max(0, Number(player.unallocated_stat_points || 0));
+  let nextLevel = currentLevel;
+  let statPoints = priorPoints;
+  let totalSouls = currentSouls + soulsGained;
+  while (nextLevel < 99 && totalSouls >= 100 * nextLevel) {
+    totalSouls -= 100 * nextLevel;
+    nextLevel += 1;
+    statPoints += 3;
+  }
+  return {
+    totalSouls, nextLevel, statPoints,
+    leveledUp: nextLevel > currentLevel,
+    gainedPoints: statPoints - priorPoints,
+  };
+}
+
+// Called the instant an enemy's health reaches zero, from either the
+// item-use path or the normal roll path. Awards souls/levels to the
+// player who landed the kill, decides what comes next (a new monster
+// in the same room, or — only after a boss — the party moving on to
+// the next room with a fresh monster), and returns everything the
+// caller needs to finish narrating and saving the turn. The session
+// itself never ends here anymore; only a full party wipe does that.
+async function resolveEnemyDefeat(
+  db: SupabaseClient,
+  sessionId: string,
+  actingUid: string,
+  actingPlayer: any,
+  roomIndex: number,
+  encounterNumber: number,
+  wasBoss: boolean,
+  enemyName: string,
+  playerCount: number,
+) {
+  const soulsGained = soulsForDefeat(wasBoss, roomIndex);
+  const { totalSouls, nextLevel, statPoints, leveledUp, gainedPoints } = applySoulsAndLevel(actingPlayer, soulsGained);
+
+  const { error: killUpdateError } = await db.from('players')
+    .update({ souls: totalSouls, level: nextLevel, unallocated_stat_points: statPoints })
+    .eq('session_id', sessionId).eq('user_id', actingUid);
+  if (killUpdateError) {
+    console.error('[db] Failed to save kill reward:', JSON.stringify(killUpdateError));
+  }
+
+  let newRoomIndex = roomIndex;
+  let newEncounterNumber = encounterNumber + 1;
+  if (wasBoss) {
+    newRoomIndex = roomIndex + 1;
+    newEncounterNumber = 1;
+  }
+  const nextEncounter = spawnEncounter(newRoomIndex, newEncounterNumber, playerCount);
+
+  const transitionLine = wasBoss
+    ? `${enemyName} finally falls! The path opens — the party presses onward into ${roomDisplayName(newRoomIndex)}, where ${nextEncounter.name} awaits.`
+    : `${enemyName} falls. ${nextEncounter.name} stirs nearby.`;
+
+  const lines = [
+    transitionLine,
+    `${actingPlayer.display_name} claims ${soulsGained} souls.`,
+  ];
+  if (leveledUp) lines.push(`${actingPlayer.display_name} reaches Level ${nextLevel} and gains ${gainedPoints} stat points.`);
+
+  return {
+    newRoomIndex,
+    newEncounterNumber,
+    nextEncounter,
+    narrativeExtra: lines.join(' '),
+  };
 }
 
 export async function generateOne(
@@ -288,20 +431,28 @@ export async function generateOne(
 
   // Joining an already-active session re-triggers a "kickoff" call
   // (see startTableWithRandomCharacter on the client) so the newcomer
-  // gets seeded in — but that must NOT re-roll or re-heal the boss
-  // once the story has actually started.
+  // gets seeded in — but that must NOT re-roll or re-heal the current
+  // enemy once the story has actually started.
   const isFreshKickoff = !!kickoff && history.length === 0;
 
-  let bossName: string = session.boss_name || 'The Nameless Dread';
-  let bossMaxHealth: number = Number(session.boss_max_health) || 100;
-  let bossHealth: number = Number(session.boss_health) || bossMaxHealth;
-  if (isFreshKickoff) {
-    bossName = BOSS_NAMES[Math.floor(Math.random() * BOSS_NAMES.length)];
-    bossMaxHealth = bossMaxHealthFor(players.length);
-    bossHealth = bossMaxHealth;
-  }
+  // current_room_index is unbounded now (the path never ends), so it
+  // is only ever clamped at 0, never capped at ROOMS.length like it
+  // was in the single-boss version.
+  const currentRoomIndex = Math.max(0, Number(session.current_room_index) || 0);
+  const encounterNumber = Math.max(1, Number(session.encounter_number) || 1);
 
-  const currentRoomIndex = Math.min(ROOMS.length - 1, Math.max(0, Number(session.current_room_index) || 0));
+  let enemyName: string = session.boss_name || 'The Nameless Dread';
+  let enemyMaxHealth: number = Number(session.boss_max_health) || 100;
+  let enemyHealth: number = Number(session.boss_health) || enemyMaxHealth;
+  let isBossNow: boolean = !!session.is_boss_encounter;
+
+  if (isFreshKickoff) {
+    const spawned = spawnEncounter(currentRoomIndex, 1, players.length);
+    enemyName = spawned.name;
+    enemyMaxHealth = spawned.maxHealth;
+    enemyHealth = spawned.maxHealth;
+    isBossNow = spawned.isBoss;
+  }
 
   // ---------------- Item use (fully deterministic, no dice roll) ----------------
   if (itemId) {
@@ -310,19 +461,19 @@ export async function generateOne(
     if (!item) throw new Error('Item not found in your inventory.');
 
     let playerHealthDelta = 0;
-    let bossHealthDelta = 0;
+    let enemyHealthDelta = 0;
     let effectSummary = '';
 
     if (item.type === 'heal') {
       playerHealthDelta = item.value;
       effectSummary = `They recovered ${item.value} health.`;
     } else if (item.type === 'damage_boss') {
-      bossHealthDelta = -item.value;
+      enemyHealthDelta = -item.value;
       if (item.selfDamage) {
         playerHealthDelta = -item.selfDamage;
-        effectSummary = `${bossName} took ${item.value} damage, and the backlash cost them ${item.selfDamage} health.`;
+        effectSummary = `${enemyName} took ${item.value} damage, and the backlash cost them ${item.selfDamage} health.`;
       } else {
-        effectSummary = `${bossName} took ${item.value} direct damage.`;
+        effectSummary = `${enemyName} took ${item.value} direct damage.`;
       }
     }
 
@@ -331,14 +482,17 @@ export async function generateOne(
     const isAlive = newHealth > 0;
     const remainingInventory = inventory.filter((it) => it.id !== itemId);
 
-    const { error: itemPlayerUpdateError } = await db.from('players').update({ health: newHealth, is_alive: isAlive, inventory: remainingInventory })
+    const { error: itemPlayerUpdateError } = await db.from('players').update({
+      health: newHealth, is_alive: isAlive, inventory: remainingInventory,
+      status: statusForHealth(newHealth, maxHealth),
+    })
       .eq('session_id', sessionId).eq('user_id', actingUid);
     if (itemPlayerUpdateError) {
       console.error('[db] Failed to update player after item use:', JSON.stringify(itemPlayerUpdateError));
       throw new Error('Could not save item effect: ' + itemPlayerUpdateError.message);
     }
 
-    const newBossHealth = Math.max(0, Math.min(bossMaxHealth, bossHealth + bossHealthDelta));
+    const newEnemyHealth = Math.max(0, Math.min(enemyMaxHealth, enemyHealth + enemyHealthDelta));
 
     const historyText = history.slice(-6)
       .map((h: any) => h.party
@@ -353,20 +507,35 @@ Narrate this moment vividly, then give the next three choices for whichever play
     try {
       result = await callStoryteller(apiKey, SYSTEM_PROMPT, userPrompt);
     } catch (error) {
-      // Any story-engine failure — quota, an empty/truncated response
-      // from a reasoning model that ran out of tokens thinking, a
-      // malformed reply, etc. — degrades to the local fallback rather
-      // than failing the whole turn. The item's mechanical effect has
-      // already been applied above regardless, so the player never
-      // loses their action to a flaky AI response.
       console.warn('Story engine unavailable; using fallback story.', String(error));
       result = fallbackStory(false, actingPlayer.display_name);
     }
 
-    const narrative = String(result.narrative || effectSummary);
+    let narrative = String(result.narrative || effectSummary);
     const updatedPlayers = players.map((p: any) =>
       p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, status: statusForHealth(newHealth, maxHealth) } : p);
     const aliveCount = updatedPlayers.filter((p: any) => p.is_alive).length;
+
+    let finalEnemyName = enemyName;
+    let finalEnemyMaxHealth = enemyMaxHealth;
+    let finalEnemyHealth = newEnemyHealth;
+    let finalRoomIndex = currentRoomIndex;
+    let finalEncounterNumber = encounterNumber;
+    let finalIsBoss = isBossNow;
+
+    if (newEnemyHealth <= 0) {
+      const defeat = await resolveEnemyDefeat(
+        db, sessionId, actingUid, actingPlayer,
+        currentRoomIndex, encounterNumber, isBossNow, enemyName, players.length,
+      );
+      narrative = `${narrative}\n\n${defeat.narrativeExtra}`;
+      finalRoomIndex = defeat.newRoomIndex;
+      finalEncounterNumber = defeat.newEncounterNumber;
+      finalEnemyName = defeat.nextEncounter.name;
+      finalEnemyMaxHealth = defeat.nextEncounter.maxHealth;
+      finalEnemyHealth = defeat.nextEncounter.maxHealth;
+      finalIsBoss = defeat.nextEncounter.isBoss;
+    }
 
     const newHistory = [...history, {
       player: actingPlayer.display_name,
@@ -377,28 +546,13 @@ Narrate this moment vividly, then give the next three choices for whichever play
       rollLabel: null,
     }];
 
-    if (newBossHealth <= 0) {
-      const summary = `${narrative}\n\n${bossName} finally falls. The table has won the night.`;
-      const { error: itemWinError } = await db.from('sessions').update({
-        status: 'completed',
-        boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: 0,
-        current_room_index: currentRoomIndex,
-        story_narrative: summary, story_choices: [], story_history: newHistory, vote_state: {},
-        updated_at: new Date().toISOString(),
-      }).eq('id', sessionId);
-      if (itemWinError) {
-        console.error('[db] Failed to save boss-defeated update (item use):', JSON.stringify(itemWinError));
-        throw new Error('Could not save the session after defeating the boss: ' + itemWinError.message);
-      }
-      return;
-    }
-
     if (aliveCount === 0) {
       const summary = `${narrative}\n\nNo one survived the night. The flame fades, and this story is over.`;
       const { error: itemLossError } = await db.from('sessions').update({
         status: 'completed',
-        boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: newBossHealth,
-        current_room_index: currentRoomIndex,
+        boss_name: finalEnemyName, boss_max_health: finalEnemyMaxHealth, boss_health: finalEnemyHealth,
+        is_boss_encounter: finalIsBoss, encounter_number: finalEncounterNumber,
+        current_room_index: finalRoomIndex,
         story_narrative: summary, story_choices: [], story_history: newHistory, vote_state: {},
         updated_at: new Date().toISOString(),
       }).eq('id', sessionId);
@@ -419,8 +573,9 @@ Narrate this moment vividly, then give the next three choices for whichever play
 
     const { error: itemTurnError } = await db.from('sessions').update({
       current_turn_index: nextIndex,
-      boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: newBossHealth,
-      current_room_index: currentRoomIndex,
+      boss_name: finalEnemyName, boss_max_health: finalEnemyMaxHealth, boss_health: finalEnemyHealth,
+      is_boss_encounter: finalIsBoss, encounter_number: finalEncounterNumber,
+      current_room_index: finalRoomIndex,
       story_narrative: narrative,
       story_choices: (result.choices ?? []).slice(0, 3),
       story_history: newHistory,
@@ -446,18 +601,19 @@ Narrate this moment vividly, then give the next three choices for whichever play
     : 'nothing notable';
 
   let userPrompt: string;
-  const currentRoom = ROOMS[currentRoomIndex];
+  const currentRoom = ROOMS[currentRoomIndex % ROOMS.length];
+  const enemyKindLabel = isBossNow ? 'boss' : 'monster';
   if (kickoff) {
     userPrompt = `Begin a brand-new session for ${players.length} player(s): ${players.map((p: any) => p.display_name).join(', ')}.
-The party faces a boss called ${bossName}.
-The party begins in the room "${currentRoom.name}": ${currentRoom.flavor}
-There is no prior choice yet. Set healthImpact, bossImpact, and soulsGained to 0. Begin at the bonfire with the canonical opening: the player awakens at a crumbling bonfire beneath an ash-colored sky, remembers only that the fire chose them, and sees their companions stir. Do not introduce the boss yet. The first three choices are for ${actingPlayer.display_name}, a ${actingPlayer.race} ${actingPlayer.class} carrying: ${inventoryText}.`;
+The party's first enemy is a ${enemyKindLabel} called ${enemyName}.
+The party begins in the room "${roomDisplayName(currentRoomIndex)}": ${currentRoom.flavor}
+There is no prior choice yet. Set healthImpact and bossImpact to 0. Begin at the bonfire with the canonical opening: the player awakens at a crumbling bonfire beneath an ash-colored sky, remembers only that the fire chose them, and sees their companions stir. Do not introduce ${enemyName} yet. The first three choices are for ${actingPlayer.display_name}, a ${actingPlayer.race} ${actingPlayer.class} carrying: ${inventoryText}.`;
   } else {
     const choices: string[] = session.story_choices ?? [];
     const chosenText = choices[choiceIndex!];
     if (chosenText === undefined) throw new Error('Invalid choice.');
-    userPrompt = `Story so far:\n${historyText || '(this is the first turn)'}\n\nThe boss, ${bossName}, is still in the fight.
-The party is currently in the room "${currentRoom.name}": ${currentRoom.flavor} Weave this setting into the scene naturally — don't just restate it.
+    userPrompt = `Story so far:\n${historyText || '(this is the first turn)'}\n\nThe current enemy is a ${enemyKindLabel} called ${enemyName}, still in the fight.
+The party is currently in the room "${roomDisplayName(currentRoomIndex)}": ${currentRoom.flavor} Weave this setting into the scene naturally — don't just restate it.
 ${actingPlayer.display_name} (a ${actingPlayer.race} ${actingPlayer.class}, health ${actingPlayer.health}, carrying: ${inventoryText}) just chose: "${chosenText}".
 Write the outcome of that choice for ${actingPlayer.display_name} and give the next three choices for whichever player will act next.`;
   }
@@ -466,9 +622,10 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
   try {
     result = await callStoryteller(apiKey, SYSTEM_PROMPT, userPrompt);
   } catch (error) {
-    // Same reasoning as the item-use branch above: degrade to the
-    // local fallback on any story-engine failure so a flaky or
-    // over-budget AI response never blocks a player's whole turn.
+    // Any story-engine failure — quota, an empty/truncated response
+    // from a reasoning model that ran out of tokens thinking, a
+    // malformed reply, etc. — degrades to the local fallback rather
+    // than failing the whole turn.
     console.warn('Story engine unavailable; using fallback story.', String(error));
     result = fallbackStory(!!kickoff, actingPlayer.display_name);
   }
@@ -476,12 +633,17 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
   let updatedPlayers = players;
   let narrative = String(result.narrative || '');
   let appliedImpact = 0;
-  let appliedBossImpact = 0;
+  let appliedEnemyImpact = 0;
   let rollLabel = '';
   let rollValue: number | null = null;
   let partyLabel: string | null = null;
   let lootedItemName: string | null = null;
-  let newRoomIndex = currentRoomIndex;
+  let finalRoomIndex = currentRoomIndex;
+  let finalEncounterNumber = encounterNumber;
+  let finalEnemyName = enemyName;
+  let finalEnemyMaxHealth = enemyMaxHealth;
+  let finalEnemyHealth = enemyHealth;
+  let finalIsBoss = isBossNow;
 
   if (!kickoff) {
     const { modifier, statUsed } = resolveModifier(actingPlayer, result.relevantStat);
@@ -493,24 +655,12 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     const baseImpact = Math.max(-35, Math.min(15, Math.round(result.healthImpact || 0)));
     appliedImpact = applyRollToPlayerImpact(baseImpact, roll);
 
-    const baseBossImpact = Math.max(-30, Math.min(10, Math.round(result.bossImpact || 0)));
-    appliedBossImpact = applyRollToBossImpact(baseBossImpact, roll);
-    console.log(`[boss] before=${bossHealth}/${bossMaxHealth} model_bossImpact=${result.bossImpact} baseBossImpact=${baseBossImpact} roll=${roll.roll} isCritFail=${roll.isCritFail} isCritSuccess=${roll.isCritSuccess} appliedBossImpact=${appliedBossImpact}`);
+    const baseEnemyImpact = Math.max(-30, Math.min(10, Math.round(result.bossImpact || 0)));
+    appliedEnemyImpact = applyRollToEnemyImpact(baseEnemyImpact, roll);
 
     const maxHealth = Math.max(1, Number(actingPlayer.max_health || 100));
     const newHealth = Math.max(0, Math.min(maxHealth, actingPlayer.health + appliedImpact));
     const isAlive = newHealth > 0;
-    const soulsGained = Math.max(0, Math.min(5000, Math.floor(Number(result.soulsGained) || 0)));
-    const currentSouls = Math.max(0, Number(actingPlayer.souls || 0));
-    const currentLevel = Math.max(1, Math.min(99, Number(actingPlayer.level || 1)));
-    let nextLevel = currentLevel;
-    let statPoints = Math.max(0, Number(actingPlayer.unallocated_stat_points || 0));
-    let totalSouls = currentSouls + soulsGained;
-    while (nextLevel < 99 && totalSouls >= 100 * nextLevel) {
-      totalSouls -= 100 * nextLevel;
-      nextLevel += 1;
-      statPoints += 3;
-    }
     const status = statusForHealth(newHealth, maxHealth);
 
     // A good roll can turn up a new item — guaranteed on a critical
@@ -526,8 +676,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     const newInventory = lootedItem ? [...currentInventory, lootedItem] : currentInventory;
 
     const { error: playerUpdateError } = await db.from('players').update({
-      health: newHealth, is_alive: isAlive, inventory: newInventory,
-      status, souls: totalSouls, level: nextLevel, unallocated_stat_points: statPoints,
+      health: newHealth, is_alive: isAlive, inventory: newInventory, status,
     })
       .eq('session_id', sessionId).eq('user_id', actingUid);
     if (playerUpdateError) {
@@ -536,7 +685,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     }
 
     updatedPlayers = players.map((p: any) =>
-      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, inventory: newInventory, status, souls: totalSouls, level: nextLevel, unallocated_stat_points: statPoints } : p);
+      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, inventory: newInventory, status } : p);
 
     if (roll.partyImpact !== 0) {
       const others = updatedPlayers.filter((p: any) => p.user_id !== actingUid && p.is_alive);
@@ -544,7 +693,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
         const otherMaxHealth = Math.max(1, Number(other.max_health || 100));
         const otherHealth = Math.max(0, Math.min(otherMaxHealth, other.health + roll.partyImpact));
         const otherAlive = otherHealth > 0;
-        const { error: otherUpdateError } = await db.from('players').update({ health: otherHealth, is_alive: otherAlive })
+        const { error: otherUpdateError } = await db.from('players').update({ health: otherHealth, is_alive: otherAlive, status: statusForHealth(otherHealth, otherMaxHealth) })
           .eq('session_id', sessionId).eq('user_id', other.user_id);
         if (otherUpdateError) {
           console.error('[db] Failed to update party-splash player:', JSON.stringify(otherUpdateError));
@@ -554,33 +703,37 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       }
     }
 
-    bossHealth = Math.max(0, Math.min(bossMaxHealth, bossHealth + appliedBossImpact));
-    console.log(`[boss] after=${bossHealth}/${bossMaxHealth}`);
+    finalEnemyHealth = Math.max(0, Math.min(enemyMaxHealth, enemyHealth + appliedEnemyImpact));
 
     const lines = [
       narrative.trim(),
       describeImpact(actingPlayer.display_name, appliedImpact),
-      describeBossImpact(bossName, appliedBossImpact),
+      describeEnemyImpact(enemyName, appliedEnemyImpact),
     ];
     if (lootedItem) lines.push(`${actingPlayer.display_name} found a ${lootedItem.name}!`);
-    if (soulsGained > 0) lines.push(`${actingPlayer.display_name} claims ${soulsGained} souls.`);
-    if (nextLevel > currentLevel) lines.push(`${actingPlayer.display_name} reaches Level ${nextLevel} and gains ${statPoints - Number(actingPlayer.unallocated_stat_points || 0)} stat points.`);
     if (!isAlive) lines.push(`${actingPlayer.display_name} has fallen. The dead pass into Ghost Mode.`);
     if (partyLabel) lines.push(partyLabel);
+    lootedItemName = lootedItem?.name ?? null;
 
-    // The map and the story share one source of truth now: this same
-    // turn count decides both which room lights up on the Ashen Map
-    // and what the next room-transition line says, so they can never
-    // show two different locations.
-    const turnsTaken = history.length + 1;
-    newRoomIndex = roomIndexForTurnCount(turnsTaken);
-    if (newRoomIndex !== currentRoomIndex) {
-      const newRoom = ROOMS[newRoomIndex];
-      lines.push(`The party presses onward into ${newRoom.name} — ${newRoom.flavor}`);
+    if (finalEnemyHealth <= 0) {
+      const defeat = await resolveEnemyDefeat(
+        db, sessionId, actingUid, updatedPlayers.find((p: any) => p.user_id === actingUid),
+        currentRoomIndex, encounterNumber, isBossNow, enemyName, players.length,
+      );
+      lines.push(defeat.narrativeExtra);
+      finalRoomIndex = defeat.newRoomIndex;
+      finalEncounterNumber = defeat.newEncounterNumber;
+      finalEnemyName = defeat.nextEncounter.name;
+      finalEnemyMaxHealth = defeat.nextEncounter.maxHealth;
+      finalEnemyHealth = defeat.nextEncounter.maxHealth;
+      finalIsBoss = defeat.nextEncounter.isBoss;
+    } else {
+      finalEnemyName = enemyName;
+      finalEnemyMaxHealth = enemyMaxHealth;
+      finalIsBoss = isBossNow;
     }
 
     narrative = lines.join('\n\n');
-    lootedItemName = lootedItem?.name ?? null;
   }
 
   const aliveCount = updatedPlayers.filter((p: any) => p.is_alive).length;
@@ -599,31 +752,15 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     ...(partyLabel ? [{ party: true, outcome: partyLabel, impact: null, roll: null }] : []),
   ];
 
-  if (!kickoff && bossHealth <= 0) {
-    const summary = `${narrative}\n\n${bossName} finally falls. The table has won the night.`;
-    const { error: winUpdateError } = await db.from('sessions').update({
-      status: 'completed',
-      boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: 0,
-      current_room_index: newRoomIndex,
-      story_narrative: summary,
-      story_choices: [],
-      story_history: newHistory,
-      vote_state: {},
-      updated_at: new Date().toISOString(),
-    }).eq('id', sessionId);
-    if (winUpdateError) {
-      console.error('[db] Failed to save boss-defeated session update:', JSON.stringify(winUpdateError));
-      throw new Error('Could not save the session after defeating the boss: ' + winUpdateError.message);
-    }
-    return;
-  }
-
+  // The session only ever ends on a full party wipe now — defeating
+  // an enemy (even a boss) just moves the party onward.
   if (!kickoff && aliveCount === 0) {
     const summary = `${narrative}\n\nNo one survived the night. The flame fades, and this story is over.`;
     const { error: lossUpdateError } = await db.from('sessions').update({
       status: 'completed',
-      boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: bossHealth,
-      current_room_index: newRoomIndex,
+      boss_name: finalEnemyName, boss_max_health: finalEnemyMaxHealth, boss_health: finalEnemyHealth,
+      is_boss_encounter: finalIsBoss, encounter_number: finalEncounterNumber,
+      current_room_index: finalRoomIndex,
       story_narrative: summary,
       story_choices: [],
       story_history: newHistory,
@@ -649,8 +786,9 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
 
   const { error: turnUpdateError } = await db.from('sessions').update({
     current_turn_index: nextIndex,
-    boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: bossHealth,
-    current_room_index: newRoomIndex,
+    boss_name: finalEnemyName, boss_max_health: finalEnemyMaxHealth, boss_health: finalEnemyHealth,
+    is_boss_encounter: finalIsBoss, encounter_number: finalEncounterNumber,
+    current_room_index: finalRoomIndex,
     story_narrative: narrative,
     story_choices: (result.choices ?? []).slice(0, 3),
     story_history: newHistory,
@@ -658,7 +796,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     updated_at: new Date().toISOString(),
   }).eq('id', sessionId);
   if (turnUpdateError) {
-    console.error('[db] Failed to save turn update:', JSON.stringify(turnUpdateError), 'payload boss_health=', bossHealth, 'boss_max_health=', bossMaxHealth);
+    console.error('[db] Failed to save turn update:', JSON.stringify(turnUpdateError));
     throw new Error('Could not save the story update: ' + turnUpdateError.message);
   }
 }
@@ -669,12 +807,12 @@ export async function resetSessionInternal(db: SupabaseClient, sessionId: string
 
   // Delete all players
   await db.from('players').delete().eq('session_id', sessionId);
-  
+
   // Delete all messages
   await db.from('messages').delete().eq('session_id', sessionId);
-  
-  // Reset the session (boss gets a fresh name/health once real players
-  // exist again — the next genuine kickoff call re-rolls it properly).
+
+  // Reset the session (the enemy gets a fresh name/health once real
+  // players exist again — the next genuine kickoff call re-rolls it).
   await db.from('sessions').update({
     status: 'active',
     current_turn_index: 0,
@@ -682,6 +820,8 @@ export async function resetSessionInternal(db: SupabaseClient, sessionId: string
     boss_name: 'The Nameless Dread',
     boss_max_health: 100,
     boss_health: 100,
+    is_boss_encounter: false,
+    encounter_number: 1,
     current_room_index: 0,
     story_narrative: 'A new tale begins… The ember has been rekindled.',
     story_choices: [],

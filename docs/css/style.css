@@ -1018,6 +1018,17 @@ h1, h2, h3, h4, .topbar-brand, .boss-name {
   padding: var(--space-sm) var(--space-md);
 }
 
+/* A regular monster still uses this bar, but without the dramatic
+   boss glow/color — keeps bosses feeling distinct and earned. */
+.boss-panel.boss-panel-monster {
+  background: rgba(255, 255, 255, 0.025);
+  border-color: var(--glass-border);
+}
+
+.boss-panel.boss-panel-monster .boss-name {
+  color: var(--text-secondary);
+}
+
 .boss-name-row {
   display: flex;
   justify-content: space-between;
@@ -1588,20 +1599,38 @@ body.theme-plain *::after {
 }
 
 .mini-map {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  aspect-ratio: 3 / 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.map-path-line {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 50%;
+  height: 2px;
+  background: rgba(213, 180, 115, 0.18);
+  z-index: 0;
 }
 
 .map-node {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
-  min-height: 24px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
   color: var(--text-muted);
   border: 1px solid rgba(213, 180, 115, 0.12);
-  background: rgba(255, 255, 255, 0.025);
-  font-size: 0.9rem;
+  background: var(--bg-card, rgba(20, 16, 14, 0.9));
+  font-size: 0.85rem;
   cursor: pointer;
   font-family: var(--font-family);
   transition: all var(--transition-fast);

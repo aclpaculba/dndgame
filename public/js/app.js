@@ -1006,6 +1006,29 @@ function renderPlayerStats(character) {
   }).join('')}</div>`;
 }
 
+// Spends one of the player's unallocated stat points (earned from
+// leveling up on souls) on a chosen ability score, capped at 20 to
+// match what the story engine is told the maximum is.
+async function allocateStatPoint(stat) {
+  const me = latestPlayers.find(p => p.user_id === currentUser.uid);
+  if (!me) return;
+  const remaining = Number(me.unallocated_stat_points) || 0;
+  if (remaining <= 0) return;
+  const current = Number(me[stat]) || 10;
+  if (current >= 20) {
+    toast('That ability is already at its maximum.', 2500);
+    return;
+  }
+
+  const { error } = await sb.from('players')
+    .update({ [stat]: current + 1, unallocated_stat_points: remaining - 1 })
+    .eq('session_id', currentSessionId).eq('user_id', currentUser.uid);
+  if (error) {
+    console.error('allocateStatPoint failed:', error);
+    toast('Could not spend that point: ' + error.message, 3500, 'error');
+  }
+}
+
 function renderPlayerInventory(player) {
   const inventory = Array.isArray(player.inventory) ? player.inventory.filter(item => item.type !== 'gear') : [];
   if (!inventory.length) return '<div class="player-stats-empty">No items carried</div>';
@@ -1024,34 +1047,87 @@ function renderPlayerGear(player) {
   `).join('')}</div>`;
 }
 
+// Kept identical (in spirit) to the ROOMS list in
+// supabase/functions/_shared/game.ts — the client can't import that
+// server-side file directly. Progression is unbounded now (the path
+// never ends), so room names cycle with a Roman-numeral suffix once
+// the party loops back around, same as the server's roomDisplayName().
+const ASHEN_ROOM_FLAVORS = [
+  { name: 'Ash', flavor: 'A crumbling bonfire throws thin light across the ruins.' },
+  { name: 'Gate', flavor: 'A broken gate watches over a road choked with ash.' },
+  { name: 'Garden', flavor: 'Darkroot paths wind between trees that no longer grow.' },
+  { name: 'Shrine', flavor: 'An old shrine, half-collapsed, still smells of incense.' },
+  { name: 'Crypt', flavor: 'Old stones and broken graves line a sunken crypt.' },
+  { name: 'Tower', flavor: 'A shattered tower stands under a sky of red lightning.' },
+  { name: 'Marsh', flavor: 'Mist clings low over a marsh that swallows footsteps.' },
+  { name: 'Keep', flavor: 'A sealed keep, its walls scarred by some old siege.' },
+];
+
+function toRomanNumeral(n) {
+  const table = [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];
+  let result = '';
+  for (const [value, symbol] of table) {
+    while (n >= value) { result += symbol; n -= value; }
+  }
+  return result;
+}
+
+function ashenRoomDisplayName(index) {
+  const loop = Math.floor(index / ASHEN_ROOM_FLAVORS.length);
+  const base = ASHEN_ROOM_FLAVORS[index % ASHEN_ROOM_FLAVORS.length].name;
+  return loop > 0 ? `${base} ${toRomanNumeral(loop + 1)}` : base;
+}
+
+// The map is a path now, not a grid of unrelated squares — nodes are
+// connected by a line, and it scrolls forward with the party instead
+// of being a fixed 9-square board. Only the CURRENT node ever shows
+// specific enemy info, and that info is read straight from live
+// session state (the same boss_name/boss_health shown above the
+// health bar) rather than an invented name, so the two can never say
+// two different things again.
 function renderAshenMap() {
   const map = $('mini-map');
   if (!map) return;
-  const rooms = ['Ash', 'Gate', 'Garden', 'Shrine', 'Crypt', 'Tower', 'Marsh', 'Keep', 'Throne'];
-  const details = [
-    ['Safe zone', 'Rest at the bonfire and prepare.', 'Exits: Gate, Garden'],
-    ['Enemy territory', 'Hollow Soldiers patrol the gate and watch the road.', 'Enemies: 3 Hollow Soldiers · Aggro range: 30 ft · Exits: Ash, Shrine'],
-    ['Enemy territory', 'Beasts stalk the darkroot paths between the trees.', 'Enemies: Forest Beasts · Aggro range: 50 ft · Exits: Ash, Throne'],
-    ['Safe zone', 'The fire remembers your name. Wounds may be tended here.', 'Bonfire: Rest, level up, manage inventory · Exits: Ash, Crypt'],
-    ['Enemy territory', 'Skeletons wait beneath the old stones and broken graves.', 'Enemies: Skeletons · Aggro range: 40 ft · Exits: Shrine, Tower'],
-    ['Enemy territory', 'Knights defend a broken tower under red lightning.', 'Enemies: Knights · Aggro range: 40 ft · Exits: Crypt, Marsh'],
-    ['Enemy territory', 'Infected wander through the mist, hunting movement.', 'Enemies: Infected · Aggro range: 40 ft · Exits: Garden, Keep'],
-    ['Enemy territory', 'Thieves guard the sealed keep and its hidden routes.', 'Enemies: Thieves · Aggro range: 40 ft · Exits: Marsh, Throne'],
-    ['Boss lair', 'The throne room belongs to the Ashen Sovereign. Enter only when ready.', 'Boss: Ashen Sovereign · Lair · Exits: Keep']
-  ];
-  const markers = ['●', '🔴', '🔴', '●', '🔴', '🔴', '🔴', '🔴', '👑'];
-  ];
-  const pathIndex = Math.min(rooms.length - 1, Math.floor((latestSession?.story_history?.length || 0) / 2));
-  map.innerHTML = rooms.map((room, index) => `
-    <button class="map-node ${index === pathIndex ? 'current' : ''} ${index < pathIndex ? 'visited' : ''}" type="button" data-map-index="${index}" aria-label="View ${room}">${index === pathIndex ? '◆' : markers[index]}</button>
-  `).join('');
+
+  const currentIndex = Number.isInteger(latestSession?.current_room_index)
+    ? Math.max(0, latestSession.current_room_index)
+    : 0;
+
+  // Show a short window of the path around where the party actually
+  // is: a couple of cleared rooms behind them, plus a few steps ahead.
+  const windowStart = Math.max(0, currentIndex - 2);
+  const windowEnd = currentIndex + 4;
+  const indices = [];
+  for (let i = windowStart; i <= windowEnd; i++) indices.push(i);
+
+  map.innerHTML = `<div class="map-path-line"></div>` + indices.map(index => {
+    const isCurrent = index === currentIndex;
+    const isVisited = index < currentIndex;
+    const marker = isCurrent ? '◆' : (isVisited ? '✓' : '●');
+    return `<button class="map-node ${isCurrent ? 'current' : ''} ${isVisited ? 'visited' : ''}" type="button" data-map-index="${index}" aria-label="View ${ashenRoomDisplayName(index)}">${marker}</button>`;
+  }).join('');
+
   const location = $('map-location');
-  if (location) location.textContent = rooms[pathIndex];
+  if (location) location.textContent = ashenRoomDisplayName(currentIndex);
+
   map.querySelectorAll('[data-map-index]').forEach(node => {
     node.addEventListener('click', () => {
       const index = Number(node.dataset.mapIndex);
-      $('map-popover-title').textContent = rooms[index];
-      $('map-popover-description').innerHTML = `<strong>${details[index][0]}</strong><br>${details[index][1]}<br><small>${details[index][2]}</small>`;
+      const name = ashenRoomDisplayName(index);
+      $('map-popover-title').textContent = name;
+
+      if (index === currentIndex) {
+        const isBoss = !!latestSession?.is_boss_encounter;
+        const enemyName = latestSession?.boss_name || 'Unknown enemy';
+        const enemyMax = latestSession?.boss_max_health || 100;
+        const enemyHealthNow = Math.max(0, Math.min(enemyMax, latestSession?.boss_health ?? enemyMax));
+        const tagLine = `<div class="map-tag"><strong>${isBoss ? 'Boss' : 'Enemy'}:</strong> ${escapeHtml(enemyName)} (${enemyHealthNow}/${enemyMax} HP)</div>`;
+        $('map-popover-description').innerHTML = `<strong class="map-kind">Current location</strong><br>${escapeHtml(ASHEN_ROOM_FLAVORS[index % ASHEN_ROOM_FLAVORS.length].flavor)}${tagLine}`;
+      } else if (index < currentIndex) {
+        $('map-popover-description').innerHTML = `<strong class="map-kind">Cleared</strong><br>The party already fought their way through here.`;
+      } else {
+        $('map-popover-description').innerHTML = `<strong class="map-kind">Unexplored</strong><br>What waits here is unknown until the party arrives.`;
+      }
       $('map-popover')?.classList.remove('hidden');
     });
   });
@@ -1198,7 +1274,9 @@ function renderGame() {
   renderAshenMap();
   renderHallOfDead();
 
-  // Boss Health Bar
+  // Enemy Health Bar (regular monster or boss — same bar either way,
+  // but bosses get the dramatic phase framing and a badge; regular
+  // monsters get a plainer label so they don't feel falsely epic).
   const bossNameEl = $('boss-name');
   const bossHealthNumEl = $('boss-health-num');
   const bossHealthFillEl = $('boss-health-fill');
@@ -1207,12 +1285,20 @@ function renderGame() {
   if (bossNameEl && bossHealthNumEl && bossHealthFillEl) {
     const bossMax = latestSession.boss_max_health || 100;
     const bossHealth = Math.max(0, Math.min(bossMax, latestSession.boss_health ?? bossMax));
+    const isBossEncounter = !!latestSession.is_boss_encounter;
     bossPanelEl?.classList.toggle('hidden', !(latestSession.story_history?.length || bossHealth < bossMax));
+    bossPanelEl?.classList.toggle('boss-panel-monster', !isBossEncounter);
     const bossPct = bossMax > 0 ? Math.round((bossHealth / bossMax) * 100) : 0;
     bossNameEl.textContent = latestSession.boss_name || 'The Nameless Dread';
     bossHealthNumEl.textContent = `${bossHealth} / ${bossMax}`;
     if (bossPhaseEl) {
-      bossPhaseEl.textContent = bossHealth <= 0 ? 'Defeated' : bossPct <= 25 ? 'Phase 4 · Enraged' : bossPct <= 50 ? 'Phase 3 · Aggressive' : bossPct <= 75 ? 'Phase 2 · Awakened' : 'Phase 1 · Watching';
+      if (bossHealth <= 0) {
+        bossPhaseEl.textContent = 'Defeated';
+      } else if (isBossEncounter) {
+        bossPhaseEl.textContent = bossPct <= 25 ? 'BOSS · Phase 4 · Enraged' : bossPct <= 50 ? 'BOSS · Phase 3 · Aggressive' : bossPct <= 75 ? 'BOSS · Phase 2 · Awakened' : 'BOSS · Phase 1 · Watching';
+      } else {
+        bossPhaseEl.textContent = 'Monster · Engaged';
+      }
     }
     bossHealthFillEl.style.width = `${bossPct}%`;
     bossHealthFillEl.style.background = bossHealth <= 0
@@ -1256,6 +1342,19 @@ function renderGame() {
             <div class="p-health-fill" style="width:${pct}%;background:${color}"></div>
           </div>
           <div class="session-meta">Level ${p.level || 1} · ${p.souls || 0} souls · ${p.status || (p.is_alive ? 'Healthy' : 'Dead')}</div>
+          ${p.user_id === currentUser.uid && Number(p.unallocated_stat_points) > 0 ? `
+            <div class="player-allocate">
+              <div class="allocate-header">${p.unallocated_stat_points} stat point${Number(p.unallocated_stat_points) === 1 ? '' : 's'} to spend — souls earned you these</div>
+              <div class="allocate-grid">
+                ${['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'].map(stat => `
+                  <div class="allocate-row">
+                    <span>${stat.slice(0, 3).toUpperCase()} <strong>${p[stat] || 10}</strong></span>
+                    <button class="btn btn-secondary btn-sm" data-allocate-stat="${stat}" ${Number(p[stat] || 10) >= 20 ? 'disabled' : ''}>+1</button>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
           <div class="player-detail-actions">
             <button class="player-stats-toggle" type="button" aria-expanded="false">Stats</button>
             <button class="player-inventory-toggle" type="button" aria-expanded="false">Inventory</button>
@@ -1295,6 +1394,12 @@ function renderGame() {
         gear.classList.toggle('hidden', expanded);
       });
     });
+    list.querySelectorAll('[data-allocate-stat]').forEach(button => {
+      button.addEventListener('click', () => {
+        sounds.playClick();
+        allocateStatPoint(button.dataset.allocateStat);
+      });
+    });
   }
 
   // Turn Indicator
@@ -1325,28 +1430,61 @@ function renderGame() {
   if (storyTextEl) storyTextEl.textContent = latestSession.story_narrative || '';
 
   // Choices
+  // Default is turn-based — only the acting player can choose, same
+  // as before voting was added. If they're not sure, they can hit
+  // "Put it to a vote" instead of picking directly, which is the
+  // *only* way a vote ever starts — it's an escape hatch, not the
+  // default flow for every single choice.
   const isMyTurn = currentTurnUid === currentUser.uid && latestSession.status === 'active';
-  const canVote = latestPlayers.some(player => player.user_id === currentUser.uid && player.is_alive);
+  const alivePlayers = latestPlayers.filter(player => player.is_alive);
+  const iAmAlive = alivePlayers.some(player => player.user_id === currentUser.uid);
+  const voteState = (latestSession.vote_state && latestSession.vote_state.active) ? latestSession.vote_state : null;
   const choicesEl = $('choices');
-  
+
   if (choicesEl) {
     if (isStuck) {
       choicesEl.innerHTML = `<button id="btn-start-tale" class="choice-btn">Start the tale</button>`;
       $('btn-start-tale')?.addEventListener('click', retryKickoff);
     } else if (!choices.length || latestSession.status !== 'active') {
       choicesEl.innerHTML = '';
+    } else if (voteState) {
+      // A vote is in progress — everyone alive can vote on the same
+      // three choices, one vote each, live counts shown as they come in.
+      const votes = voteState.votes || {};
+      const hasVoted = Object.prototype.hasOwnProperty.call(votes, currentUser.uid);
+      choicesEl.innerHTML = choices.map((c, i) => {
+        const count = Object.values(votes).filter(v => v === i).length;
+        return `
+          <button class="choice-btn" data-vote="${i}" ${(hasVoted || !iAmAlive) ? 'disabled' : ''}>
+            ${escapeHtml(c)}
+            <span class="vote-count">${count} vote${count === 1 ? '' : 's'}</span>
+          </button>
+        `;
+      }).join('');
+      choicesEl.querySelectorAll('[data-vote]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          sounds.playClick();
+          castVote(Number(btn.dataset.vote));
+        });
+      });
     } else {
       choicesEl.innerHTML = choices.map((c, i) => `
-        <button class="choice-btn" data-choice="${i}" ${canVote ? '' : 'disabled'}>
+        <button class="choice-btn" data-choice="${i}" ${isMyTurn ? '' : 'disabled'}>
           ${escapeHtml(c)}
         </button>
-      `).join('');
-      
+      `).join('') + (isMyTurn ? `
+        <button class="choice-btn choice-btn-vote" type="button" data-put-to-vote>Not sure? Put it to a vote</button>
+      ` : '');
+
       choicesEl.querySelectorAll('[data-choice]').forEach(btn => {
         btn.addEventListener('click', () => {
           sounds.playClick();
           submitChoice(Number(btn.dataset.choice));
         });
+      });
+      choicesEl.querySelector('[data-put-to-vote]')?.addEventListener('click', () => {
+        sounds.playClick();
+        startVote();
       });
     }
   }
@@ -1354,9 +1492,16 @@ function renderGame() {
   // Status
   const statusEl = $('story-status');
   if (statusEl) {
-    const votes = latestSession.vote_state || {};
-    const voteCount = Object.keys(votes).length;
-    statusEl.textContent = isStuck ? '' : (latestSession.status === 'active' ? `Party vote: ${voteCount}/${latestPlayers.filter(player => player.is_alive).length} votes cast.` : '');
+    if (isStuck) {
+      statusEl.textContent = '';
+    } else if (voteState) {
+      const voteCount = Object.keys(voteState.votes || {}).length;
+      statusEl.textContent = `Party vote: ${voteCount}/${alivePlayers.length} votes cast.`;
+    } else if (latestSession.status === 'active') {
+      statusEl.textContent = isMyTurn ? '' : 'Only the active player can choose (or put it to a vote).';
+    } else {
+      statusEl.textContent = '';
+    }
   }
 
   // Inventory — only shown to the acting player, on their own turn,
@@ -1414,31 +1559,82 @@ async function useItem(itemId) {
   }
 }
 
-// ---------- Submit Choice ----------
+// ---------- Submit Choice (turn-based — only the acting player calls this) ----------
 async function submitChoice(choiceIndex) {
   const choicesEl = $('choices');
   const statusEl = $('story-status');
-  const votes = { ...(latestSession.vote_state || {}), [currentUser.uid]: choiceIndex };
-  const alivePlayers = latestPlayers.filter(player => player.is_alive);
-  const voteCounts = choicesEl ? [...choicesEl.querySelectorAll('[data-choice]')].map(() => 0) : [];
-  Object.values(votes).forEach(vote => { if (voteCounts[vote] !== undefined) voteCounts[vote] += 1; });
-  const winner = voteCounts.indexOf(Math.max(...voteCounts));
-  latestSession.vote_state = votes;
+  if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
+  if (statusEl) statusEl.textContent = 'The storyteller is weaving…';
+
+  const { data, error } = await sb.functions.invoke('generate-story', {
+    body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
+  });
+  if (error) {
+    console.error('submitChoice failed:', error);
+    if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
+    toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+  }
+}
+
+// ---------- Party vote (opt-in escape hatch, not the default flow) ----------
+// Only the current-turn player can trigger this — everyone else just
+// waits for their turn normally. Once started, every alive player
+// gets one vote on the same three choices; the majority pick gets
+// submitted the moment the last vote comes in.
+async function startVote() {
+  const { error } = await sb.from('sessions')
+    .update({ vote_state: { active: true, votes: {} } })
+    .eq('id', currentSessionId);
+  if (error) {
+    console.error('startVote failed:', error);
+    toast('Could not start a vote: ' + error.message, 4000, 'error');
+  }
+}
+
+async function castVote(choiceIndex) {
+  const current = (latestSession.vote_state && latestSession.vote_state.active)
+    ? latestSession.vote_state
+    : { active: true, votes: {} };
+  const votes = { ...current.votes, [currentUser.uid]: choiceIndex };
+  const alivePlayers = latestPlayers.filter(p => p.is_alive);
+
+  // Show the updated count immediately instead of waiting on the
+  // realtime round-trip back from the database.
+  latestSession.vote_state = { active: true, votes };
   renderGame();
-  const { error: voteError } = await sb.from('sessions').update({ vote_state: votes }).eq('id', currentSessionId);
+
+  const { error: voteError } = await sb.from('sessions')
+    .update({ vote_state: { active: true, votes } })
+    .eq('id', currentSessionId);
   if (voteError) {
-    if (statusEl) statusEl.textContent = 'Could not record the party vote.';
+    console.error('castVote failed:', voteError);
     toast('Vote failed: ' + voteError.message, 4000, 'error');
     return;
   }
+
   if (Object.keys(votes).length < alivePlayers.length) return;
+
+  // Everyone alive has voted — tally and submit the majority choice.
+  // (If two people happen to cast the very last vote at the exact
+  // same instant, both browsers could reach this point together and
+  // both call generate-story — a rare, low-stakes race that existed
+  // in the original voting code too; not worth a distributed lock for
+  // a casual game.)
+  const tally = {};
+  Object.values(votes).forEach(v => { tally[v] = (tally[v] || 0) + 1; });
+  const winner = Number(Object.keys(tally).reduce((best, key) =>
+    tally[key] > tally[best] ? key : best, Object.keys(tally)[0]));
+
+  const choicesEl = $('choices');
+  const statusEl = $('story-status');
   if (statusEl) statusEl.textContent = 'The party has agreed. The storyteller is weaving…';
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
+
   const { data, error } = await sb.functions.invoke('generate-story', {
     body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex: winner },
   });
   if (error) {
-    console.error('submitChoice failed:', error);
+    console.error('submitChoice (vote) failed:', error);
     if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
     toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
   }
