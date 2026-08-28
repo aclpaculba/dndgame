@@ -1047,50 +1047,87 @@ function renderPlayerGear(player) {
   `).join('')}</div>`;
 }
 
+// Kept identical (in spirit) to the ROOMS list in
+// supabase/functions/_shared/game.ts — the client can't import that
+// server-side file directly. Progression is unbounded now (the path
+// never ends), so room names cycle with a Roman-numeral suffix once
+// the party loops back around, same as the server's roomDisplayName().
+const ASHEN_ROOM_FLAVORS = [
+  { name: 'Ash', flavor: 'A crumbling bonfire throws thin light across the ruins.' },
+  { name: 'Gate', flavor: 'A broken gate watches over a road choked with ash.' },
+  { name: 'Garden', flavor: 'Darkroot paths wind between trees that no longer grow.' },
+  { name: 'Shrine', flavor: 'An old shrine, half-collapsed, still smells of incense.' },
+  { name: 'Crypt', flavor: 'Old stones and broken graves line a sunken crypt.' },
+  { name: 'Tower', flavor: 'A shattered tower stands under a sky of red lightning.' },
+  { name: 'Marsh', flavor: 'Mist clings low over a marsh that swallows footsteps.' },
+  { name: 'Keep', flavor: 'A sealed keep, its walls scarred by some old siege.' },
+];
+
+function toRomanNumeral(n) {
+  const table = [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];
+  let result = '';
+  for (const [value, symbol] of table) {
+    while (n >= value) { result += symbol; n -= value; }
+  }
+  return result;
+}
+
+function ashenRoomDisplayName(index) {
+  const loop = Math.floor(index / ASHEN_ROOM_FLAVORS.length);
+  const base = ASHEN_ROOM_FLAVORS[index % ASHEN_ROOM_FLAVORS.length].name;
+  return loop > 0 ? `${base} ${toRomanNumeral(loop + 1)}` : base;
+}
+
+// The map is a path now, not a grid of unrelated squares — nodes are
+// connected by a line, and it scrolls forward with the party instead
+// of being a fixed 9-square board. Only the CURRENT node ever shows
+// specific enemy info, and that info is read straight from live
+// session state (the same boss_name/boss_health shown above the
+// health bar) rather than an invented name, so the two can never say
+// two different things again.
 function renderAshenMap() {
   const map = $('mini-map');
   if (!map) return;
-  const rooms = ['Ash', 'Gate', 'Garden', 'Shrine', 'Crypt', 'Tower', 'Marsh', 'Keep', 'Throne'];
-  // Kept identical to the ROOMS list in supabase/functions/_shared/game.ts
-  // (the client can't import that server-side file directly). Each
-  // room's flavor line here is only used for the fallback path below;
-  // the tags array is what actually renders in the popover, one bold
-  // label per line.
-  const details = [
-    ['Safe zone', 'Rest at the bonfire and prepare.', [['Exits', 'Gate, Garden']]],
-    ['Enemy territory', 'Hollow Soldiers patrol the gate and watch the road.', [['Enemies', '3 Hollow Soldiers'], ['Aggro range', '30 ft'], ['Exits', 'Ash, Shrine']]],
-    ['Enemy territory', 'Beasts stalk the darkroot paths between the trees.', [['Enemies', 'Forest Beasts'], ['Aggro range', '50 ft'], ['Exits', 'Ash, Throne']]],
-    ['Safe zone', 'The fire remembers your name. Wounds may be tended here.', [['Bonfire', 'Rest, level up, manage inventory'], ['Exits', 'Ash, Crypt']]],
-    ['Enemy territory', 'Skeletons wait beneath the old stones and broken graves.', [['Enemies', 'Skeletons'], ['Aggro range', '40 ft'], ['Exits', 'Shrine, Tower']]],
-    ['Enemy territory', 'Knights defend a broken tower under red lightning.', [['Enemies', 'Knights'], ['Aggro range', '40 ft'], ['Exits', 'Crypt, Marsh']]],
-    ['Enemy territory', 'Infected wander through the mist, hunting movement.', [['Enemies', 'Infected'], ['Aggro range', '40 ft'], ['Exits', 'Garden, Keep']]],
-    ['Enemy territory', 'Thieves guard the sealed keep and its hidden routes.', [['Enemies', 'Thieves'], ['Aggro range', '40 ft'], ['Exits', 'Marsh, Throne']]],
-    ['Boss lair', 'The throne room belongs to the Ashen Sovereign. Enter only when ready.', [['Boss', 'Ashen Sovereign'], ['Lair', ''], ['Exits', 'Keep']]]
-  ];
-  const markers = ['●', '🔴', '🔴', '●', '🔴', '🔴', '🔴', '🔴', '👑'];
-  // The server now decides the party's actual room and writes it to
-  // sessions.current_room_index every turn — the map just reads that
-  // value directly, so it and the story can never show two different
-  // locations. Sessions from before this existed fall back to the old
-  // turn-count guess so they don't just show "Ash" forever.
-  const pathIndex = Number.isInteger(latestSession?.current_room_index)
-    ? Math.min(rooms.length - 1, Math.max(0, latestSession.current_room_index))
-    : Math.min(rooms.length - 1, Math.floor((latestSession?.story_history?.length || 0) / 2));
-  map.innerHTML = rooms.map((room, index) => `
-    <button class="map-node ${index === pathIndex ? 'current' : ''} ${index < pathIndex ? 'visited' : ''}" type="button" data-map-index="${index}" aria-label="View ${room}">${index === pathIndex ? '◆' : markers[index]}</button>
-  `).join('');
+
+  const currentIndex = Number.isInteger(latestSession?.current_room_index)
+    ? Math.max(0, latestSession.current_room_index)
+    : 0;
+
+  // Show a short window of the path around where the party actually
+  // is: a couple of cleared rooms behind them, plus a few steps ahead.
+  const windowStart = Math.max(0, currentIndex - 2);
+  const windowEnd = currentIndex + 4;
+  const indices = [];
+  for (let i = windowStart; i <= windowEnd; i++) indices.push(i);
+
+  map.innerHTML = `<div class="map-path-line"></div>` + indices.map(index => {
+    const isCurrent = index === currentIndex;
+    const isVisited = index < currentIndex;
+    const marker = isCurrent ? '◆' : (isVisited ? '✓' : '●');
+    return `<button class="map-node ${isCurrent ? 'current' : ''} ${isVisited ? 'visited' : ''}" type="button" data-map-index="${index}" aria-label="View ${ashenRoomDisplayName(index)}">${marker}</button>`;
+  }).join('');
+
   const location = $('map-location');
-  if (location) location.textContent = rooms[pathIndex];
+  if (location) location.textContent = ashenRoomDisplayName(currentIndex);
+
   map.querySelectorAll('[data-map-index]').forEach(node => {
     node.addEventListener('click', () => {
       const index = Number(node.dataset.mapIndex);
-      $('map-popover-title').textContent = rooms[index];
-      const [kind, flavor, tags] = details[index];
-      const tagLines = tags
-        .filter(([, value]) => value !== '' || true)
-        .map(([label, value]) => `<div class="map-tag"><strong>${escapeHtml(label)}${value ? ':' : ''}</strong>${value ? ` ${escapeHtml(value)}` : ''}</div>`)
-        .join('');
-      $('map-popover-description').innerHTML = `<strong class="map-kind">${escapeHtml(kind)}</strong><br>${escapeHtml(flavor)}${tagLines}`;
+      const name = ashenRoomDisplayName(index);
+      $('map-popover-title').textContent = name;
+
+      if (index === currentIndex) {
+        const isBoss = !!latestSession?.is_boss_encounter;
+        const enemyName = latestSession?.boss_name || 'Unknown enemy';
+        const enemyMax = latestSession?.boss_max_health || 100;
+        const enemyHealthNow = Math.max(0, Math.min(enemyMax, latestSession?.boss_health ?? enemyMax));
+        const tagLine = `<div class="map-tag"><strong>${isBoss ? 'Boss' : 'Enemy'}:</strong> ${escapeHtml(enemyName)} (${enemyHealthNow}/${enemyMax} HP)</div>`;
+        $('map-popover-description').innerHTML = `<strong class="map-kind">Current location</strong><br>${escapeHtml(ASHEN_ROOM_FLAVORS[index % ASHEN_ROOM_FLAVORS.length].flavor)}${tagLine}`;
+      } else if (index < currentIndex) {
+        $('map-popover-description').innerHTML = `<strong class="map-kind">Cleared</strong><br>The party already fought their way through here.`;
+      } else {
+        $('map-popover-description').innerHTML = `<strong class="map-kind">Unexplored</strong><br>What waits here is unknown until the party arrives.`;
+      }
       $('map-popover')?.classList.remove('hidden');
     });
   });
@@ -1237,21 +1274,45 @@ function renderGame() {
   renderAshenMap();
   renderHallOfDead();
 
-  // Boss Health Bar
+  // Rooms 0 (Ash) and 3 (Shrine) in the cycle are safe zones — kept
+  // in sync with the safeZone flags on ROOMS in
+  // supabase/functions/_shared/game.ts (the client can't import that
+  // file directly). When the party is in one, there's no enemy at
+  // all, so the boss/monster health bar is replaced by a calm banner
+  // instead of showing stale or zeroed-out combat info.
+  const SAFE_ZONE_ROOM_SLOTS = new Set([0, 3]);
+  const currentRoomIdx = Number.isInteger(latestSession?.current_room_index) ? latestSession.current_room_index : 0;
+  const inSafeZoneNow = SAFE_ZONE_ROOM_SLOTS.has(currentRoomIdx % 8);
+
+  // Enemy Health Bar (regular monster or boss — same bar either way,
+  // but bosses get the dramatic phase framing and a badge; regular
+  // monsters get a plainer label so they don't feel falsely epic).
   const bossNameEl = $('boss-name');
   const bossHealthNumEl = $('boss-health-num');
   const bossHealthFillEl = $('boss-health-fill');
   const bossPhaseEl = $('boss-phase');
   const bossPanelEl = $('boss-panel');
-  if (bossNameEl && bossHealthNumEl && bossHealthFillEl) {
+  const safeZoneBannerEl = $('safe-zone-banner');
+  safeZoneBannerEl?.classList.toggle('hidden', !inSafeZoneNow);
+  if (inSafeZoneNow) {
+    bossPanelEl?.classList.add('hidden');
+  } else if (bossNameEl && bossHealthNumEl && bossHealthFillEl) {
     const bossMax = latestSession.boss_max_health || 100;
     const bossHealth = Math.max(0, Math.min(bossMax, latestSession.boss_health ?? bossMax));
+    const isBossEncounter = !!latestSession.is_boss_encounter;
     bossPanelEl?.classList.toggle('hidden', !(latestSession.story_history?.length || bossHealth < bossMax));
+    bossPanelEl?.classList.toggle('boss-panel-monster', !isBossEncounter);
     const bossPct = bossMax > 0 ? Math.round((bossHealth / bossMax) * 100) : 0;
     bossNameEl.textContent = latestSession.boss_name || 'The Nameless Dread';
     bossHealthNumEl.textContent = `${bossHealth} / ${bossMax}`;
     if (bossPhaseEl) {
-      bossPhaseEl.textContent = bossHealth <= 0 ? 'Defeated' : bossPct <= 25 ? 'Phase 4 · Enraged' : bossPct <= 50 ? 'Phase 3 · Aggressive' : bossPct <= 75 ? 'Phase 2 · Awakened' : 'Phase 1 · Watching';
+      if (bossHealth <= 0) {
+        bossPhaseEl.textContent = 'Defeated';
+      } else if (isBossEncounter) {
+        bossPhaseEl.textContent = bossPct <= 25 ? 'BOSS · Phase 4 · Enraged' : bossPct <= 50 ? 'BOSS · Phase 3 · Aggressive' : bossPct <= 75 ? 'BOSS · Phase 2 · Awakened' : 'BOSS · Phase 1 · Watching';
+      } else {
+        bossPhaseEl.textContent = 'Monster · Engaged';
+      }
     }
     bossHealthFillEl.style.width = `${bossPct}%`;
     bossHealthFillEl.style.background = bossHealth <= 0

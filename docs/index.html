@@ -270,6 +270,20 @@
           </p>
         </div>
       </div>
+
+      <section class="ability-info-panel" aria-labelledby="ability-info-title">
+        <h2 id="ability-info-title">Ability Scores</h2>
+        <p class="text-secondary">Every stat matters in a fight, not just whichever one comes up in the story — here's what each one actually does.</p>
+        <div class="ability-info-grid">
+          <div class="ability-info-item"><strong>Strength (STR)</strong><span>Raw power. Increases the damage you deal.</span></div>
+          <div class="ability-info-item"><strong>Dexterity (DEX)</strong><span>Speed and precision. Boosts both your damage and your chance to dodge incoming attacks.</span></div>
+          <div class="ability-info-item"><strong>Constitution (CON)</strong><span>Toughness. Reduces how much damage you take from every hit.</span></div>
+          <div class="ability-info-item"><strong>Intelligence (INT)</strong><span>Tactical insight. Helps you find and exploit an enemy's weak points for bonus damage.</span></div>
+          <div class="ability-info-item"><strong>Wisdom (WIS)</strong><span>Awareness. Helps you see danger coming, reducing damage taken.</span></div>
+          <div class="ability-info-item"><strong>Charisma (CHA)</strong><span>Leadership. Boosts the whole party's luck on your best moments, and softens the fallout of your worst.</span></div>
+        </div>
+        <p class="text-muted ability-info-footnote">Spending a stat point when you level up raises that ability permanently — the higher it gets, the more it helps. Even so, a lucky or unlucky roll can still swing a fight hard either way.</p>
+      </section>
     </main>
   </section>
 
@@ -307,6 +321,10 @@
           <div class="boss-health-track">
             <div id="boss-health-fill" class="boss-health-fill" style="width:100%"></div>
           </div>
+        </div>
+        <div id="safe-zone-banner" class="safe-zone-banner hidden" role="status">
+          <strong>Safe Zone</strong>
+          <span id="safe-zone-message">No enemies here — rest at the bonfire or use a potion.</span>
         </div>
         <section class="mini-map-panel" aria-labelledby="map-title">
           <div class="mini-map-heading">

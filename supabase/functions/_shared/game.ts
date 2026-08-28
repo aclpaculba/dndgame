@@ -1,7 +1,7 @@
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.46.0';
 import { callStoryteller } from './storyteller.ts';
 
-const SYSTEM_PROMPT = `You are the AI Storyteller for "Stackfall: Ashen Edition", a grim, melancholic dark-fantasy survival RPG. Every choice matters, death is permanent unless the engine explicitly reports resurrection, and the party is fighting a living enemy with a health bar — sometimes a regular monster, sometimes a boss. The engine tells you which one and its name; never invent a different name for it.
+const SYSTEM_PROMPT = `You are the AI Storyteller for "Stackfall: Ashen Edition", a grim, melancholic dark-fantasy survival RPG. Every choice matters, death is permanent unless the engine explicitly reports resurrection, and the party is fighting a living enemy with a health bar — sometimes a regular monster, sometimes a boss. The engine tells you which one and its name; never invent a different name for it. The engine also tells you when the party is in a safe zone — never place a monster or boss there.
 All characters begin from STR 10, DEX 10, CON 10, INT 10, WIS 10, CHA 10 before coherent racial, class, and background bonuses. Use the modifier bands from -5 to +5 for ability checks. Starting HP is class-based from 6-12 plus CON modifier. The engine applies the mechanics; you narrate their consequences.
 Use tabletop-style rules in your reasoning: initiative is d20 + DEX, attacks use d20 + STR/DEX + weapon bonus, damage uses weapon dice + STR/DEX, AC is 10 + DEX + armor + shield. Exploration may test STR 14 to climb, DEX 12 to pick locks, WIS 12 to perceive, INT 15 to decipher, CHA 13 to persuade, or CON 14 to survive. Social actions may use persuasion, intimidation, deception, inspiration, or insight with the relevant ability and background or item.
 Write intense, thrilling, vivid prose (45-90 words) with real stakes — never bland or generic. Weave in the acting player's race, class, personality, relevant ability, and inventory when they fit naturally.
@@ -13,6 +13,7 @@ You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching
 - "bossImpact" is your baseline suggestion for the CURRENT ENEMY (monster or boss, whichever the engine told you is active), an integer between -30 and 10 (negative = damage dealt to it, positive = it recovering or gaining ground) — most actions aimed at the enemy should deal some damage; actions that don't engage it directly can use 0.
 - "relevantStat" is exactly one of: strength, dexterity, constitution, intelligence, wisdom, charisma — whichever ability best explains why this action might succeed or fail.
 - Souls pay for levels at 100 × current level. Each level grants 3 stat points; the maximum level and stat are 99 and 20. The engine awards souls only when an enemy is actually defeated — never mention a specific soul amount yourself.
+- Every ability score has a real mechanical role the engine applies on top of your suggestion: STR, DEX, and INT all add to damage dealt; DEX, CON, and WIS all reduce damage taken; CHA amplifies the party's best moments and softens its worst. You don't need to calculate any of this — just write choices and prose that let a character's strong stats plausibly shine.
 - Inventory uses weapon, off-hand, armor, helm, boots, ring1, and ring2 slots. Items may have requirements, bonuses, consumable effects, and weight; never grant impossible equipment without narrative justification.
 - Regular monsters are territorial: place them in named regions, show them before they notice the party, and offer fight, sneak, observe, bait, or retreat. Bosses do not roam and are noticeably tougher and more dangerous than a regular monster — describe boss phases at 75%, 50%, and 25% HP thresholds when the engine tells you the current enemy is a boss.
 - Always describe visible enemies and their behavior before combat. A stealth action uses DEX, retreat uses CHA, and observation uses WIS when those approaches fit the scene.
@@ -47,19 +48,22 @@ const MONSTER_NAMES = [
 // room flavor — the client's Ashen Map keeps an identical copy (it
 // can't import this file directly), but the *position* within it
 // lives only here, in sessions.current_room_index. Progression is
-// now unbounded (the path never ends), so room names cycle through
-// this list with a Roman-numeral suffix once the party loops back
-// around — see roomDisplayName().
+// unbounded (the path never ends), so room names cycle through this
+// list with a Roman-numeral suffix once the party loops back around
+// — see roomDisplayName(). "safeZone: true" rooms never spawn a
+// monster or boss; the party rests there instead.
 const ROOMS = [
-  { name: 'Ash', flavor: 'A crumbling bonfire throws thin light across the ruins.' },
-  { name: 'Gate', flavor: 'A broken gate watches over a road choked with ash.' },
-  { name: 'Garden', flavor: 'Darkroot paths wind between trees that no longer grow.' },
-  { name: 'Shrine', flavor: 'An old shrine, half-collapsed, still smells of incense.' },
-  { name: 'Crypt', flavor: 'Old stones and broken graves line a sunken crypt.' },
-  { name: 'Tower', flavor: 'A shattered tower stands under a sky of red lightning.' },
-  { name: 'Marsh', flavor: 'Mist clings low over a marsh that swallows footsteps.' },
-  { name: 'Keep', flavor: 'A sealed keep, its walls scarred by some old siege.' },
+  { name: 'Ash', flavor: 'A crumbling bonfire throws thin light across the ruins.', safeZone: true },
+  { name: 'Gate', flavor: 'A broken gate watches over a road choked with ash.', safeZone: false },
+  { name: 'Garden', flavor: 'Darkroot paths wind between trees that no longer grow.', safeZone: false },
+  { name: 'Shrine', flavor: 'An old shrine, half-collapsed, still smells of incense.', safeZone: true },
+  { name: 'Crypt', flavor: 'Old stones and broken graves line a sunken crypt.', safeZone: false },
+  { name: 'Tower', flavor: 'A shattered tower stands under a sky of red lightning.', safeZone: false },
+  { name: 'Marsh', flavor: 'Mist clings low over a marsh that swallows footsteps.', safeZone: false },
+  { name: 'Keep', flavor: 'A sealed keep, its walls scarred by some old siege.', safeZone: false },
 ];
+
+const SAFE_ZONE_CHOICES = ['Rest at the bonfire and heal fully', 'Keep watch while the others rest'];
 
 const ROMAN_NUMERALS: Array<[number, string]> = [
   [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'],
@@ -74,35 +78,30 @@ function toRoman(n: number): string {
   return result;
 }
 
-// e.g. room index 8 is a second pass through "Ash" -> "Ash II".
 function roomDisplayName(index: number): string {
   const loop = Math.floor(index / ROOMS.length);
   const base = ROOMS[index % ROOMS.length].name;
   return loop > 0 ? `${base} ${toRoman(loop + 1)}` : base;
 }
 
-// Every 5th encounter in a room is a boss; the four before it are
-// regular monsters. Kept as a named constant so "bosses every 5
-// levels" is one obvious number to tune, not something buried in
-// arithmetic scattered around the file.
+function roomAt(index: number) {
+  return ROOMS[index % ROOMS.length];
+}
+
+function isSafeZoneRoom(index: number): boolean {
+  return roomAt(index).safeZone;
+}
+
 const ENCOUNTERS_PER_BOSS = 5;
 
 function isBossEncounterNumber(n: number): boolean {
   return n % ENCOUNTERS_PER_BOSS === 0;
 }
 
-// Difficulty scales with how many rooms the party has cleared.
-// current_room_index only advances when a boss is actually
-// defeated, so this ramps up permanently and smoothly as the party
-// goes deeper — it never resets.
 function monsterMaxHealthFor(roomIndex: number): number {
   return Math.min(300, 30 + roomIndex * 8);
 }
 
-// Bosses are always meaningfully tougher than a regular monster at
-// the same depth, and that gap widens the deeper the party goes —
-// this is what makes them "stronger and harder to kill" rather than
-// just a differently-named monster with the same stats.
 function bossMaxHealthFor(roomIndex: number, playerCount: number): number {
   return Math.min(1500, 90 + roomIndex * 30 + playerCount * 15);
 }
@@ -123,19 +122,12 @@ function spawnEncounter(roomIndex: number, encounterNumber: number, playerCount:
   };
 }
 
-// Souls are awarded ONLY at the moment an enemy is actually
-// defeated — never for ordinary narrative success — and a boss
-// kill is worth substantially more than a regular monster, scaled
-// by depth so early and late kills don't feel the same.
 function soulsForDefeat(isBoss: boolean, roomIndex: number): number {
   const base = isBoss ? 200 : 40;
   const scaled = base + roomIndex * (isBoss ? 40 : 8);
   return Math.min(5000, scaled);
 }
 
-// Deterministic items — their effects never depend on the story engine,
-// so using one always does exactly what it says, regardless of AI
-// availability or quota.
 const ITEM_POOL = [
   { name: 'Healing Potion', type: 'heal', value: 10, description: 'Restores 10 health.' },
   { name: 'Field Rations', type: 'heal', value: 10, description: 'Restores 10 health.' },
@@ -148,12 +140,10 @@ function getRuntimeEnv(name: string): string {
   if (denoEnv && typeof denoEnv.get === 'function') {
     return denoEnv.get(name) ?? '';
   }
-
   const nodeEnv = (globalThis as any).process?.env;
   if (nodeEnv && typeof nodeEnv[name] === 'string') {
     return nodeEnv[name];
   }
-
   return '';
 }
 
@@ -170,9 +160,6 @@ export async function requireUser(db: SupabaseClient, userId: string): Promise<v
   if (error || !data) throw new Error('Unknown player — please sign in again.');
 }
 
-// Generates a small, random starting inventory for a freshly-created
-// character. Called from the client side too (kept here so both share
-// the exact same pool/shape), but re-exported for that purpose.
 export function rollStartingInventory(count = 2) {
   const items = [];
   const healingPotion = ITEM_POOL[0];
@@ -186,32 +173,39 @@ function getStatModifier(score: number): number {
   return Math.floor((score - 10) / 2);
 }
 
-// Works out how much a player's stats should nudge the roll: uses the
-// specific ability the story engine flagged as relevant if it gave a
-// valid one, otherwise falls back to the player's overall average
-// modifier across all six scores.
+// ---------------- All six stats matter, not just whichever one the
+// story engine flags as "relevant" for a given action ----------------
+// STR/DEX/INT push damage dealt up; DEX/CON/WIS pull damage taken
+// down; CHA amplifies the party's best rolls and softens its worst.
+// Each is capped well below the raw crit swings (±45 damage) so a
+// maxed-out character is meaningfully tougher without making the
+// fight predictable — a lucky or unlucky roll can still swing things
+// hard either way, which is the whole point of a dice game.
+function offenseBonus(player: any): number {
+  const raw = getStatModifier(player.strength ?? 8) + getStatModifier(player.dexterity ?? 8) + getStatModifier(player.intelligence ?? 8);
+  return Math.max(-10, Math.min(10, raw));
+}
+
+function defenseBonus(player: any): number {
+  const raw = getStatModifier(player.dexterity ?? 8) + getStatModifier(player.constitution ?? 8) + getStatModifier(player.wisdom ?? 8);
+  return Math.max(-10, Math.min(10, raw));
+}
+
+function moraleBonus(player: any): number {
+  return Math.max(-5, Math.min(5, getStatModifier(player.charisma ?? 8)));
+}
+
 function resolveModifier(player: any, relevantStat?: string): { modifier: number; statUsed: string } {
   const normalized = (relevantStat || '').toLowerCase();
   const key = (ABILITY_KEYS as readonly string[]).includes(normalized) ? (normalized as AbilityKey) : null;
-
   if (key) {
     const score = player[key] ?? 8;
     return { modifier: getStatModifier(score), statUsed: key };
   }
-
   const avg = ABILITY_KEYS.reduce((sum, k) => sum + getStatModifier(player[k] ?? 8), 0) / ABILITY_KEYS.length;
   return { modifier: Math.round(avg), statUsed: 'overall aptitude' };
 }
 
-// ---------------- Randomized outcome roll ----------------
-// A hidden d20 roll, nudged by the acting player's relevant ability
-// score, decides how a story choice actually plays out. Natural 1s
-// and 20s always trigger a critical failure/success regardless of
-// stats (the classic tabletop convention) — everywhere else, a
-// strong, relevant stat makes good rolls a bit better and bad rolls
-// a bit milder, without ever guaranteeing the result outright. The
-// same roll drives both the acting player's outcome and how much
-// damage lands on the current enemy, so one die decides the whole beat.
 type RollOutcome = {
   roll: number;
   modifier: number;
@@ -251,7 +245,7 @@ function rollOutcome(modifier: number, statUsed: string): RollOutcome {
     };
   }
 
-  const base = 0.5 + Math.random() * 0.9; // 0.5x - 1.4x
+  const base = 0.5 + Math.random() * 0.9;
   const nudge = Math.max(-0.25, Math.min(0.25, modifier * 0.05));
   const multiplier = Math.max(0.2, Math.min(1.6, base + nudge));
   const effectiveRoll = roll + modifier;
@@ -263,29 +257,39 @@ function rollOutcome(modifier: number, statUsed: string): RollOutcome {
   };
 }
 
-function applyRollToPlayerImpact(baseImpact: number, roll: RollOutcome): number {
+function applyRollToPlayerImpact(baseImpact: number, roll: RollOutcome, defense: number): number {
+  let impact: number;
   if (roll.isCritFail) {
-    const impact = Math.min(-15, Math.round(baseImpact * roll.multiplier) - 8);
-    return Math.max(-45, impact);
+    impact = Math.max(-45, Math.min(-15, Math.round(baseImpact * roll.multiplier) - 8));
+  } else if (roll.isCritSuccess) {
+    impact = baseImpact < 0
+      ? Math.min(25, Math.abs(Math.round(baseImpact * 0.5)) + 4)
+      : baseImpact + 8;
+  } else {
+    impact = Math.max(-40, Math.min(20, Math.round(baseImpact * roll.multiplier)));
   }
-  if (roll.isCritSuccess) {
-    const impact = baseImpact < 0 ? Math.abs(Math.round(baseImpact * 0.5)) + 4 : baseImpact + 8;
-    return Math.min(25, impact);
-  }
-  const impact = Math.round(baseImpact * roll.multiplier);
-  return Math.max(-40, Math.min(20, impact));
+  if (impact < 0) impact = Math.min(-1, impact + defense);
+  return impact;
 }
 
-function applyRollToEnemyImpact(baseImpact: number, roll: RollOutcome): number {
-  const damagePortion = Math.min(0, baseImpact); // only the damage side scales with the roll
+function applyRollToEnemyImpact(baseImpact: number, roll: RollOutcome, offense: number): number {
+  const damagePortion = Math.min(0, baseImpact);
+  let impact: number;
   if (roll.isCritFail) {
-    return Math.round(damagePortion * 0.2); // barely scratched it
+    impact = Math.round(damagePortion * 0.2);
+  } else if (roll.isCritSuccess) {
+    impact = Math.round(damagePortion * roll.multiplier) - 6;
+  } else {
+    impact = Math.max(-35, Math.min(10, Math.round(baseImpact * roll.multiplier)));
   }
-  if (roll.isCritSuccess) {
-    return Math.round(damagePortion * roll.multiplier) - 6; // extra, guaranteed bite
-  }
-  const impact = Math.round(baseImpact * roll.multiplier);
-  return Math.max(-35, Math.min(10, impact));
+  if (impact < 0) impact -= Math.max(0, offense);
+  return impact;
+}
+
+function applyMoraleToPartyImpact(basePartyImpact: number, morale: number): number {
+  if (basePartyImpact === 0) return 0;
+  if (basePartyImpact > 0) return Math.max(1, basePartyImpact + Math.max(0, morale));
+  return Math.min(-1, basePartyImpact + Math.max(0, morale));
 }
 
 function describeImpact(name: string, impact: number): string {
@@ -316,7 +320,6 @@ function fallbackStory(kickoff: boolean, actingName: string) {
       choices: ['Begin character creation', 'Listen to the fire', 'Wake your companions'],
     };
   }
-
   return {
     narrative: `${actingName}'s choice changes the shape of the silence. The ember burns lower, but a narrow path appears beyond the ash.`,
     healthImpact: 0,
@@ -326,9 +329,6 @@ function fallbackStory(kickoff: boolean, actingName: string) {
   };
 }
 
-// Souls/leveling math, shared between the item-use kill path and the
-// normal-turn kill path so they can never drift out of sync with
-// each other.
 function applySoulsAndLevel(player: any, soulsGained: number) {
   const currentSouls = Math.max(0, Number(player.souls || 0));
   const currentLevel = Math.max(1, Math.min(99, Number(player.level || 1)));
@@ -348,13 +348,6 @@ function applySoulsAndLevel(player: any, soulsGained: number) {
   };
 }
 
-// Called the instant an enemy's health reaches zero, from either the
-// item-use path or the normal roll path. Awards souls/levels to the
-// player who landed the kill, decides what comes next (a new monster
-// in the same room, or — only after a boss — the party moving on to
-// the next room with a fresh monster), and returns everything the
-// caller needs to finish narrating and saving the turn. The session
-// itself never ends here anymore; only a full party wipe does that.
 async function resolveEnemyDefeat(
   db: SupabaseClient,
   sessionId: string,
@@ -382,22 +375,27 @@ async function resolveEnemyDefeat(
     newRoomIndex = roomIndex + 1;
     newEncounterNumber = 1;
   }
-  const nextEncounter = spawnEncounter(newRoomIndex, newEncounterNumber, playerCount);
 
-  const transitionLine = wasBoss
-    ? `${enemyName} finally falls! The path opens — the party presses onward into ${roomDisplayName(newRoomIndex)}, where ${nextEncounter.name} awaits.`
-    : `${enemyName} falls. ${nextEncounter.name} stirs nearby.`;
+  const nextIsSafeZone = wasBoss && isSafeZoneRoom(newRoomIndex);
+  const nextEncounter = nextIsSafeZone ? null : spawnEncounter(newRoomIndex, newEncounterNumber, playerCount);
 
-  const lines = [
-    transitionLine,
-    `${actingPlayer.display_name} claims ${soulsGained} souls.`,
-  ];
+  let transitionLine: string;
+  if (!wasBoss) {
+    transitionLine = `${enemyName} falls. ${nextEncounter!.name} stirs nearby.`;
+  } else if (nextIsSafeZone) {
+    transitionLine = `${enemyName} finally falls! The path opens — the party presses onward into ${roomDisplayName(newRoomIndex)}, a rare stretch of quiet.`;
+  } else {
+    transitionLine = `${enemyName} finally falls! The path opens — the party presses onward into ${roomDisplayName(newRoomIndex)}, where ${nextEncounter!.name} awaits.`;
+  }
+
+  const lines = [transitionLine, `${actingPlayer.display_name} claims ${soulsGained} souls.`];
   if (leveledUp) lines.push(`${actingPlayer.display_name} reaches Level ${nextLevel} and gains ${gainedPoints} stat points.`);
 
   return {
     newRoomIndex,
-    newEncounterNumber,
+    newEncounterNumber: nextIsSafeZone ? 1 : newEncounterNumber,
     nextEncounter,
+    enteredSafeZone: nextIsSafeZone,
     narrativeExtra: lines.join(' '),
   };
 }
@@ -417,10 +415,6 @@ export async function generateOne(
     .from('players').select('*').eq('session_id', sessionId).order('position_in_turn_order');
   if (pErr || !players) throw new Error('Could not load players.');
 
-  // Nothing to narrate yet if no one has joined — and critically, do
-  // NOT call resetSessionInternal here: that function deletes players
-  // and then calls back into this one with kickoff, which would find
-  // zero players again and recurse forever.
   if (players.length === 0) return;
 
   const actingUid = session.turn_order[session.current_turn_index];
@@ -428,25 +422,18 @@ export async function generateOne(
   if (!actingPlayer) throw new Error('Acting player not found.');
 
   const history = session.story_history ?? [];
-
-  // Joining an already-active session re-triggers a "kickoff" call
-  // (see startTableWithRandomCharacter on the client) so the newcomer
-  // gets seeded in — but that must NOT re-roll or re-heal the current
-  // enemy once the story has actually started.
   const isFreshKickoff = !!kickoff && history.length === 0;
 
-  // current_room_index is unbounded now (the path never ends), so it
-  // is only ever clamped at 0, never capped at ROOMS.length like it
-  // was in the single-boss version.
   const currentRoomIndex = Math.max(0, Number(session.current_room_index) || 0);
   const encounterNumber = Math.max(1, Number(session.encounter_number) || 1);
+  const inSafeZone = isSafeZoneRoom(currentRoomIndex);
 
   let enemyName: string = session.boss_name || 'The Nameless Dread';
   let enemyMaxHealth: number = Number(session.boss_max_health) || 100;
   let enemyHealth: number = Number(session.boss_health) || enemyMaxHealth;
   let isBossNow: boolean = !!session.is_boss_encounter;
 
-  if (isFreshKickoff) {
+  if (isFreshKickoff && !inSafeZone) {
     const spawned = spawnEncounter(currentRoomIndex, 1, players.length);
     enemyName = spawned.name;
     enemyMaxHealth = spawned.maxHealth;
@@ -454,7 +441,9 @@ export async function generateOne(
     isBossNow = spawned.isBoss;
   }
 
-  // ---------------- Item use (fully deterministic, no dice roll) ----------------
+  // ================================================================
+  // Item use is always available, safe zone or not.
+  // ================================================================
   if (itemId) {
     const inventory: any[] = Array.isArray(actingPlayer.inventory) ? actingPlayer.inventory : [];
     const item = inventory.find((it) => it.id === itemId);
@@ -467,7 +456,7 @@ export async function generateOne(
     if (item.type === 'heal') {
       playerHealthDelta = item.value;
       effectSummary = `They recovered ${item.value} health.`;
-    } else if (item.type === 'damage_boss') {
+    } else if (item.type === 'damage_boss' && !inSafeZone) {
       enemyHealthDelta = -item.value;
       if (item.selfDamage) {
         playerHealthDelta = -item.selfDamage;
@@ -475,6 +464,8 @@ export async function generateOne(
       } else {
         effectSummary = `${enemyName} took ${item.value} direct damage.`;
       }
+    } else if (item.type === 'damage_boss' && inSafeZone) {
+      throw new Error('There is no enemy here to use that on.');
     }
 
     const maxHealth = Math.max(1, Number(actingPlayer.max_health || 100));
@@ -485,19 +476,47 @@ export async function generateOne(
     const { error: itemPlayerUpdateError } = await db.from('players').update({
       health: newHealth, is_alive: isAlive, inventory: remainingInventory,
       status: statusForHealth(newHealth, maxHealth),
-    })
-      .eq('session_id', sessionId).eq('user_id', actingUid);
+    }).eq('session_id', sessionId).eq('user_id', actingUid);
     if (itemPlayerUpdateError) {
       console.error('[db] Failed to update player after item use:', JSON.stringify(itemPlayerUpdateError));
       throw new Error('Could not save item effect: ' + itemPlayerUpdateError.message);
     }
 
+    if (inSafeZone) {
+      const newHistory = [...history, {
+        player: actingPlayer.display_name,
+        choice: `Used ${item.name}`,
+        outcome: effectSummary,
+        impact: playerHealthDelta,
+        roll: null,
+        rollLabel: null,
+      }];
+      let nextIndex = session.current_turn_index;
+      const order: string[] = session.turn_order;
+      for (let i = 0; i < order.length; i++) {
+        nextIndex = (nextIndex + 1) % order.length;
+        const p = players.find((pl: any) => pl.user_id === order[nextIndex]);
+        if (p && p.is_alive) break;
+      }
+      const { error: safeItemError } = await db.from('sessions').update({
+        current_turn_index: nextIndex,
+        story_narrative: `${actingPlayer.display_name} uses their ${item.name}. ${effectSummary}`,
+        story_choices: SAFE_ZONE_CHOICES,
+        story_history: newHistory,
+        vote_state: {},
+        updated_at: new Date().toISOString(),
+      }).eq('id', sessionId);
+      if (safeItemError) {
+        console.error('[db] Failed to save safe-zone item use:', JSON.stringify(safeItemError));
+        throw new Error('Could not save the story update: ' + safeItemError.message);
+      }
+      return;
+    }
+
     const newEnemyHealth = Math.max(0, Math.min(enemyMaxHealth, enemyHealth + enemyHealthDelta));
 
     const historyText = history.slice(-6)
-      .map((h: any) => h.party
-        ? `- (party) ${h.outcome}`
-        : `- ${h.player}: ${h.choice} → ${h.outcome}`)
+      .map((h: any) => h.party ? `- (party) ${h.outcome}` : `- ${h.player}: ${h.choice} → ${h.outcome}`)
       .join('\n');
 
     const userPrompt = `Story so far:\n${historyText || '(this is the first turn)'}\n\n${actingPlayer.display_name} just used their ${item.name} (${item.description}). ${effectSummary}
@@ -522,6 +541,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
     let finalRoomIndex = currentRoomIndex;
     let finalEncounterNumber = encounterNumber;
     let finalIsBoss = isBossNow;
+    let finalChoices = (result.choices ?? []).slice(0, 3);
 
     if (newEnemyHealth <= 0) {
       const defeat = await resolveEnemyDefeat(
@@ -531,10 +551,16 @@ Narrate this moment vividly, then give the next three choices for whichever play
       narrative = `${narrative}\n\n${defeat.narrativeExtra}`;
       finalRoomIndex = defeat.newRoomIndex;
       finalEncounterNumber = defeat.newEncounterNumber;
-      finalEnemyName = defeat.nextEncounter.name;
-      finalEnemyMaxHealth = defeat.nextEncounter.maxHealth;
-      finalEnemyHealth = defeat.nextEncounter.maxHealth;
-      finalIsBoss = defeat.nextEncounter.isBoss;
+      if (defeat.enteredSafeZone) {
+        finalIsBoss = false;
+        finalChoices = SAFE_ZONE_CHOICES;
+        narrative = `${narrative}\n\nThe party has reached a safe zone. For now, the dying world holds its breath.`;
+      } else {
+        finalEnemyName = defeat.nextEncounter!.name;
+        finalEnemyMaxHealth = defeat.nextEncounter!.maxHealth;
+        finalEnemyHealth = defeat.nextEncounter!.maxHealth;
+        finalIsBoss = defeat.nextEncounter!.isBoss;
+      }
     }
 
     const newHistory = [...history, {
@@ -552,7 +578,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
         status: 'completed',
         boss_name: finalEnemyName, boss_max_health: finalEnemyMaxHealth, boss_health: finalEnemyHealth,
         is_boss_encounter: finalIsBoss, encounter_number: finalEncounterNumber,
-        current_room_index: finalRoomIndex,
+        current_room_index: finalRoomIndex, safe_zone_turns_taken: 0,
         story_narrative: summary, story_choices: [], story_history: newHistory, vote_state: {},
         updated_at: new Date().toISOString(),
       }).eq('id', sessionId);
@@ -575,9 +601,9 @@ Narrate this moment vividly, then give the next three choices for whichever play
       current_turn_index: nextIndex,
       boss_name: finalEnemyName, boss_max_health: finalEnemyMaxHealth, boss_health: finalEnemyHealth,
       is_boss_encounter: finalIsBoss, encounter_number: finalEncounterNumber,
-      current_room_index: finalRoomIndex,
+      current_room_index: finalRoomIndex, safe_zone_turns_taken: 0,
       story_narrative: narrative,
-      story_choices: (result.choices ?? []).slice(0, 3),
+      story_choices: finalChoices,
       story_history: newHistory,
       vote_state: {},
       updated_at: new Date().toISOString(),
@@ -589,11 +615,162 @@ Narrate this moment vividly, then give the next three choices for whichever play
     return;
   }
 
-  // ---------------- Normal turn: kickoff or a chosen story option ----------------
+  // ================================================================
+  // Safe zone: no monster, no boss, no dice roll — fully
+  // deterministic. Once every alive player has taken one turn here,
+  // the party automatically moves to the next room.
+  // ================================================================
+  if (inSafeZone) {
+    const room = roomAt(currentRoomIndex);
+
+    if (kickoff) {
+      let openingNarrative: string;
+      try {
+        const prompt = `Begin a brand-new session for ${players.length} player(s): ${players.map((p: any) => p.display_name).join(', ')}.
+The party begins in a SAFE ZONE — the room "${roomDisplayName(currentRoomIndex)}": ${room.flavor} There are no enemies here. Set healthImpact and bossImpact to 0. Write only the canonical opening: the player awakens at a crumbling bonfire beneath an ash-colored sky, remembers only that the fire chose them, and sees their companions stir. Choices do not matter here; the engine will supply them.`;
+        const result = await callStoryteller(apiKey, SYSTEM_PROMPT, prompt);
+        openingNarrative = String(result.narrative || '');
+      } catch (error) {
+        console.warn('Story engine unavailable for kickoff; using fallback story.', String(error));
+        openingNarrative = fallbackStory(true, actingPlayer.display_name).narrative;
+      }
+
+      const framing = 'The party is still finding its footing here — a fragile safe zone before the true trials begin.';
+      const { error: safeKickoffError } = await db.from('sessions').update({
+        boss_name: enemyName, boss_max_health: enemyMaxHealth, boss_health: enemyHealth,
+        is_boss_encounter: false, encounter_number: encounterNumber,
+        current_room_index: currentRoomIndex, safe_zone_turns_taken: 0,
+        story_narrative: `${openingNarrative}\n\n${framing}`,
+        story_choices: SAFE_ZONE_CHOICES,
+        story_history: [],
+        vote_state: {},
+        updated_at: new Date().toISOString(),
+      }).eq('id', sessionId);
+      if (safeKickoffError) {
+        console.error('[db] Failed to save safe-zone kickoff:', JSON.stringify(safeKickoffError));
+        throw new Error('Could not save the opening scene: ' + safeKickoffError.message);
+      }
+      return;
+    }
+
+    const choices: string[] = session.story_choices ?? SAFE_ZONE_CHOICES;
+    const chosenText = choices[choiceIndex!];
+    if (chosenText === undefined) throw new Error('Invalid choice.');
+    const isRestChoice = choiceIndex === 0;
+
+    const maxHealth = Math.max(1, Number(actingPlayer.max_health || 100));
+    const newHealth = isRestChoice ? maxHealth : actingPlayer.health;
+    const healedAmount = newHealth - actingPlayer.health;
+    const flavorLine = isRestChoice
+      ? (healedAmount > 0
+        ? `${actingPlayer.display_name} rests at the bonfire. Warmth returns to aching limbs — fully healed.`
+        : `${actingPlayer.display_name} rests at the bonfire, already at full strength.`)
+      : `${actingPlayer.display_name} keeps watch while the ashes settle, staying alert as the others rest.`;
+
+    const { error: safeHealError } = await db.from('players').update({
+      health: newHealth, status: statusForHealth(newHealth, maxHealth),
+    }).eq('session_id', sessionId).eq('user_id', actingUid);
+    if (safeHealError) {
+      console.error('[db] Failed to save safe-zone rest:', JSON.stringify(safeHealError));
+      throw new Error('Could not save your turn: ' + safeHealError.message);
+    }
+
+    const aliveCount = players.filter((p: any) => p.is_alive).length;
+    const turnsTaken = Math.max(0, Number(session.safe_zone_turns_taken) || 0) + 1;
+
+    const newHistory = [...history, {
+      player: actingPlayer.display_name,
+      choice: chosenText,
+      outcome: flavorLine,
+      impact: healedAmount > 0 ? healedAmount : 0,
+      roll: null,
+      rollLabel: null,
+    }];
+
+    if (turnsTaken >= aliveCount) {
+      const nextRoomIndex = currentRoomIndex + 1;
+      const nextInSafeZone = isSafeZoneRoom(nextRoomIndex);
+
+      if (nextInSafeZone) {
+        const transitionLine = `The party moves on to another quiet stretch of the path: ${roomDisplayName(nextRoomIndex)}.`;
+        const { error: safeToSafeError } = await db.from('sessions').update({
+          current_room_index: nextRoomIndex, safe_zone_turns_taken: 0,
+          is_boss_encounter: false,
+          story_narrative: `${flavorLine}\n\n${transitionLine}`,
+          story_choices: SAFE_ZONE_CHOICES,
+          story_history: newHistory,
+          vote_state: {},
+          updated_at: new Date().toISOString(),
+        }).eq('id', sessionId);
+        if (safeToSafeError) {
+          console.error('[db] Failed to save safe-zone-to-safe-zone transition:', JSON.stringify(safeToSafeError));
+          throw new Error('Could not save the story update: ' + safeToSafeError.message);
+        }
+        return;
+      }
+
+      const nextEncounter = spawnEncounter(nextRoomIndex, 1, players.length);
+      let nextNarrative: string;
+      let nextChoices: string[];
+      try {
+        const introPrompt = `The party has just left a safe zone and entered "${roomDisplayName(nextRoomIndex)}": ${roomAt(nextRoomIndex).flavor}
+They now face a ${nextEncounter.isBoss ? 'boss' : 'monster'} called ${nextEncounter.name}. Write a short, tense introduction to this enemy — do not resolve any action yet, so set healthImpact and bossImpact to 0 — and give three choices for whoever acts next.`;
+        const introResult = await callStoryteller(apiKey, SYSTEM_PROMPT, introPrompt);
+        nextNarrative = String(introResult.narrative || `${nextEncounter.name} emerges, blocking the way forward.`);
+        nextChoices = (introResult.choices ?? []).slice(0, 3);
+        if (nextChoices.length < 3) nextChoices = ['Attack head-on', 'Look for an opening', 'Hold the line'];
+      } catch (error) {
+        console.warn('Story engine unavailable for encounter intro; using fallback.', String(error));
+        nextNarrative = `${nextEncounter.name} emerges from the dark, blocking the only way forward.`;
+        nextChoices = ['Attack head-on', 'Look for an opening', 'Hold the line'];
+      }
+
+      const { error: safeToCombatError } = await db.from('sessions').update({
+        current_room_index: nextRoomIndex, safe_zone_turns_taken: 0,
+        boss_name: nextEncounter.name, boss_max_health: nextEncounter.maxHealth, boss_health: nextEncounter.maxHealth,
+        is_boss_encounter: nextEncounter.isBoss, encounter_number: 1,
+        story_narrative: `${flavorLine}\n\nThe party leaves the safe zone behind.\n\n${nextNarrative}`,
+        story_choices: nextChoices,
+        story_history: newHistory,
+        vote_state: {},
+        updated_at: new Date().toISOString(),
+      }).eq('id', sessionId);
+      if (safeToCombatError) {
+        console.error('[db] Failed to save safe-zone exit:', JSON.stringify(safeToCombatError));
+        throw new Error('Could not save the story update: ' + safeToCombatError.message);
+      }
+      return;
+    }
+
+    let nextIndex = session.current_turn_index;
+    const order: string[] = session.turn_order;
+    for (let i = 0; i < order.length; i++) {
+      nextIndex = (nextIndex + 1) % order.length;
+      const p = players.find((pl: any) => pl.user_id === order[nextIndex]);
+      if (p && p.is_alive) break;
+    }
+
+    const { error: safeAdvanceError } = await db.from('sessions').update({
+      current_turn_index: nextIndex,
+      safe_zone_turns_taken: turnsTaken,
+      story_narrative: flavorLine,
+      story_choices: SAFE_ZONE_CHOICES,
+      story_history: newHistory,
+      vote_state: {},
+      updated_at: new Date().toISOString(),
+    }).eq('id', sessionId);
+    if (safeAdvanceError) {
+      console.error('[db] Failed to save safe-zone turn advance:', JSON.stringify(safeAdvanceError));
+      throw new Error('Could not save your turn: ' + safeAdvanceError.message);
+    }
+    return;
+  }
+
+  // ================================================================
+  // Normal turn: an actual fight, kickoff or a chosen story option.
+  // ================================================================
   const historyText = history.slice(-6)
-    .map((h: any) => h.party
-      ? `- (party) ${h.outcome}`
-      : `- ${h.player}: chose "${h.choice}" → ${h.outcome}`)
+    .map((h: any) => h.party ? `- (party) ${h.outcome}` : `- ${h.player}: chose "${h.choice}" → ${h.outcome}`)
     .join('\n');
 
   const inventoryText = Array.isArray(actingPlayer.inventory) && actingPlayer.inventory.length
@@ -601,7 +778,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
     : 'nothing notable';
 
   let userPrompt: string;
-  const currentRoom = ROOMS[currentRoomIndex % ROOMS.length];
+  const currentRoom = roomAt(currentRoomIndex);
   const enemyKindLabel = isBossNow ? 'boss' : 'monster';
   if (kickoff) {
     userPrompt = `Begin a brand-new session for ${players.length} player(s): ${players.map((p: any) => p.display_name).join(', ')}.
@@ -622,10 +799,6 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
   try {
     result = await callStoryteller(apiKey, SYSTEM_PROMPT, userPrompt);
   } catch (error) {
-    // Any story-engine failure — quota, an empty/truncated response
-    // from a reasoning model that ran out of tokens thinking, a
-    // malformed reply, etc. — degrades to the local fallback rather
-    // than failing the whole turn.
     console.warn('Story engine unavailable; using fallback story.', String(error));
     result = fallbackStory(!!kickoff, actingPlayer.display_name);
   }
@@ -644,29 +817,29 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
   let finalEnemyMaxHealth = enemyMaxHealth;
   let finalEnemyHealth = enemyHealth;
   let finalIsBoss = isBossNow;
+  let finalChoices: string[] = (result.choices ?? []).slice(0, 3);
+  let enteredSafeZoneAfter = false;
 
   if (!kickoff) {
     const { modifier, statUsed } = resolveModifier(actingPlayer, result.relevantStat);
     const roll = rollOutcome(modifier, statUsed);
     rollValue = roll.roll;
     rollLabel = roll.rollLabel;
-    partyLabel = roll.partyLabel;
 
     const baseImpact = Math.max(-35, Math.min(15, Math.round(result.healthImpact || 0)));
-    appliedImpact = applyRollToPlayerImpact(baseImpact, roll);
+    appliedImpact = applyRollToPlayerImpact(baseImpact, roll, defenseBonus(actingPlayer));
 
     const baseEnemyImpact = Math.max(-30, Math.min(10, Math.round(result.bossImpact || 0)));
-    appliedEnemyImpact = applyRollToEnemyImpact(baseEnemyImpact, roll);
+    appliedEnemyImpact = applyRollToEnemyImpact(baseEnemyImpact, roll, offenseBonus(actingPlayer));
+
+    const partyImpact = applyMoraleToPartyImpact(roll.partyImpact, moraleBonus(actingPlayer));
+    partyLabel = partyImpact !== 0 ? roll.partyLabel : null;
 
     const maxHealth = Math.max(1, Number(actingPlayer.max_health || 100));
     const newHealth = Math.max(0, Math.min(maxHealth, actingPlayer.health + appliedImpact));
     const isAlive = newHealth > 0;
     const status = statusForHealth(newHealth, maxHealth);
 
-    // A good roll can turn up a new item — guaranteed on a critical
-    // success, a decent chance otherwise, never on a critical failure.
-    // This is how inventory actually grows over the course of a game,
-    // rather than only ever shrinking as items get used.
     let lootedItem: (typeof ITEM_POOL)[number] & { id: string } | null = null;
     if (isAlive && (roll.isCritSuccess || (!roll.isCritFail && Math.random() < 0.3))) {
       const template = ITEM_POOL[Math.floor(Math.random() * ITEM_POOL.length)];
@@ -677,8 +850,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
 
     const { error: playerUpdateError } = await db.from('players').update({
       health: newHealth, is_alive: isAlive, inventory: newInventory, status,
-    })
-      .eq('session_id', sessionId).eq('user_id', actingUid);
+    }).eq('session_id', sessionId).eq('user_id', actingUid);
     if (playerUpdateError) {
       console.error('[db] Failed to update acting player:', JSON.stringify(playerUpdateError));
       throw new Error('Could not save the acting player\'s new health/inventory: ' + playerUpdateError.message);
@@ -687,11 +859,11 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     updatedPlayers = players.map((p: any) =>
       p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, inventory: newInventory, status } : p);
 
-    if (roll.partyImpact !== 0) {
+    if (partyImpact !== 0) {
       const others = updatedPlayers.filter((p: any) => p.user_id !== actingUid && p.is_alive);
       for (const other of others) {
         const otherMaxHealth = Math.max(1, Number(other.max_health || 100));
-        const otherHealth = Math.max(0, Math.min(otherMaxHealth, other.health + roll.partyImpact));
+        const otherHealth = Math.max(0, Math.min(otherMaxHealth, other.health + partyImpact));
         const otherAlive = otherHealth > 0;
         const { error: otherUpdateError } = await db.from('players').update({ health: otherHealth, is_alive: otherAlive, status: statusForHealth(otherHealth, otherMaxHealth) })
           .eq('session_id', sessionId).eq('user_id', other.user_id);
@@ -723,10 +895,17 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       lines.push(defeat.narrativeExtra);
       finalRoomIndex = defeat.newRoomIndex;
       finalEncounterNumber = defeat.newEncounterNumber;
-      finalEnemyName = defeat.nextEncounter.name;
-      finalEnemyMaxHealth = defeat.nextEncounter.maxHealth;
-      finalEnemyHealth = defeat.nextEncounter.maxHealth;
-      finalIsBoss = defeat.nextEncounter.isBoss;
+      if (defeat.enteredSafeZone) {
+        enteredSafeZoneAfter = true;
+        finalIsBoss = false;
+        finalChoices = SAFE_ZONE_CHOICES;
+        lines.push('The party has reached a safe zone. For now, the dying world holds its breath.');
+      } else {
+        finalEnemyName = defeat.nextEncounter!.name;
+        finalEnemyMaxHealth = defeat.nextEncounter!.maxHealth;
+        finalEnemyHealth = defeat.nextEncounter!.maxHealth;
+        finalIsBoss = defeat.nextEncounter!.isBoss;
+      }
     } else {
       finalEnemyName = enemyName;
       finalEnemyMaxHealth = enemyMaxHealth;
@@ -752,15 +931,13 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     ...(partyLabel ? [{ party: true, outcome: partyLabel, impact: null, roll: null }] : []),
   ];
 
-  // The session only ever ends on a full party wipe now — defeating
-  // an enemy (even a boss) just moves the party onward.
   if (!kickoff && aliveCount === 0) {
     const summary = `${narrative}\n\nNo one survived the night. The flame fades, and this story is over.`;
     const { error: lossUpdateError } = await db.from('sessions').update({
       status: 'completed',
       boss_name: finalEnemyName, boss_max_health: finalEnemyMaxHealth, boss_health: finalEnemyHealth,
       is_boss_encounter: finalIsBoss, encounter_number: finalEncounterNumber,
-      current_room_index: finalRoomIndex,
+      current_room_index: finalRoomIndex, safe_zone_turns_taken: 0,
       story_narrative: summary,
       story_choices: [],
       story_history: newHistory,
@@ -788,9 +965,9 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     current_turn_index: nextIndex,
     boss_name: finalEnemyName, boss_max_health: finalEnemyMaxHealth, boss_health: finalEnemyHealth,
     is_boss_encounter: finalIsBoss, encounter_number: finalEncounterNumber,
-    current_room_index: finalRoomIndex,
+    current_room_index: finalRoomIndex, safe_zone_turns_taken: 0,
     story_narrative: narrative,
-    story_choices: (result.choices ?? []).slice(0, 3),
+    story_choices: enteredSafeZoneAfter ? SAFE_ZONE_CHOICES : finalChoices,
     story_history: newHistory,
     vote_state: {},
     updated_at: new Date().toISOString(),
@@ -805,14 +982,9 @@ export async function resetSessionInternal(db: SupabaseClient, sessionId: string
   const { data: session, error } = await db.from('sessions').select('id').eq('id', sessionId).single();
   if (error || !session) throw new Error('Session not found.');
 
-  // Delete all players
   await db.from('players').delete().eq('session_id', sessionId);
-
-  // Delete all messages
   await db.from('messages').delete().eq('session_id', sessionId);
 
-  // Reset the session (the enemy gets a fresh name/health once real
-  // players exist again — the next genuine kickoff call re-rolls it).
   await db.from('sessions').update({
     status: 'active',
     current_turn_index: 0,
@@ -823,6 +995,7 @@ export async function resetSessionInternal(db: SupabaseClient, sessionId: string
     is_boss_encounter: false,
     encounter_number: 1,
     current_room_index: 0,
+    safe_zone_turns_taken: 0,
     story_narrative: 'A new tale begins… The ember has been rekindled.',
     story_choices: [],
     story_history: [],
@@ -830,15 +1003,8 @@ export async function resetSessionInternal(db: SupabaseClient, sessionId: string
     updated_at: new Date().toISOString(),
   }).eq('id', sessionId);
 
-  // Clear active_session_id from all profiles
   await db
     .from('profiles')
     .update({ active_session_id: null })
     .eq('active_session_id', sessionId);
-
-  // Note: no follow-up kickoff call here — there are zero players
-  // immediately after the delete above, and generateOne() correctly
-  // no-ops in that case. The real kickoff happens naturally once
-  // someone actually creates/joins a session and the client calls
-  // generate-story with kickoff: true.
 }
