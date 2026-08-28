@@ -974,6 +974,60 @@ $('modal-character-stats')?.addEventListener('click', (e) => {
   }
 });
 
+// ---------- All-Time Stats (permanent, cross-session — lives on the
+// profile, not the per-session player row, since a new players row
+// is created every time someone joins a table) ----------
+async function openAllTimeStats() {
+  const content = $('alltime-content');
+  const modal = $('modal-alltime-stats');
+  if (!content || !modal || !currentUser) return;
+
+  content.innerHTML = '<p class="text-muted" style="padding: var(--space-md) 0;">Loading…</p>';
+  modal.showModal();
+
+  const { data, error } = await sb.from('profiles')
+    .select('total_damage_dealt, total_damage_taken, enemies_slain, bosses_slain, sections_cleared, highest_single_hit')
+    .eq('id', currentUser.uid).maybeSingle();
+
+  if (error || !data) {
+    content.innerHTML = '<p class="text-muted" style="padding: var(--space-md) 0;">Could not load your stats.</p>';
+    return;
+  }
+
+  content.innerHTML = `
+    <div class="stats-sheet">
+      <div class="stat-item"><span class="stat-label">Enemies slain</span><span class="stat-value">${data.enemies_slain || 0}</span></div>
+      <div class="stat-item"><span class="stat-label">Bosses slain</span><span class="stat-value">${data.bosses_slain || 0}</span></div>
+      <div class="stat-item"><span class="stat-label">Sections cleared</span><span class="stat-value">${data.sections_cleared || 0}</span></div>
+      <div class="stat-item"><span class="stat-label">Total damage dealt</span><span class="stat-value">${data.total_damage_dealt || 0}</span></div>
+      <div class="stat-item"><span class="stat-label">Total damage taken</span><span class="stat-value">${data.total_damage_taken || 0}</span></div>
+      <div class="stat-item"><span class="stat-label">Highest single hit</span><span class="stat-value">${data.highest_single_hit || 0}</span></div>
+    </div>
+    <p class="text-muted ability-info-footnote">These totals follow your username across every table you ever play — they never reset when a session ends.</p>
+  `;
+}
+
+$('btn-open-alltime')?.addEventListener('click', () => {
+  sounds.playClick();
+  openAllTimeStats();
+});
+
+$('btn-open-alltime-game')?.addEventListener('click', () => {
+  sounds.playClick();
+  openAllTimeStats();
+});
+
+$('btn-alltime-close')?.addEventListener('click', () => {
+  const modal = $('modal-alltime-stats');
+  if (modal) modal.close();
+});
+
+$('modal-alltime-stats')?.addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) {
+    e.currentTarget.close();
+  }
+});
+
 // ---------- Game Screen ----------
 async function refreshGameState() {
   const [{ data: session }, { data: players }] = await Promise.all([
