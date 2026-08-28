@@ -485,14 +485,27 @@ $('form-name')?.addEventListener('submit', async (e) => {
   }
   
   try {
+    console.log('1. Checking sb:', sb);
     if (!sb) throw new Error('The database client is unavailable. Check your internet connection and reload the page.');
+    
+    console.log('2. Calling login_or_create_profile for:', name);
     const { data: profile, error } = await sb.rpc('login_or_create_profile', { p_username: name });
+    console.log('3. Profile response:', profile, error);
+    
     if (error) throw error;
+    if (!profile) throw new Error('No profile returned.');
+    
+    console.log('4. Setting current user from profile');
     setCurrentUserFromProfile(profile);
+    
+    console.log('5. Playing click sound');
     sounds.playClick();
+    
+    console.log('6. Entering lobby');
     enterLobby();
+    
   } catch (err) {
-    console.error(err);
+    console.error('Login error:', err);
     if (errEl) errEl.textContent = err.message || 'Could not continue — try again.';
   } finally {
     if (submitBtn) {
