@@ -34,6 +34,34 @@ const BOSS_NAMES = [
   'Vaelgrim the Ember-Eater',
 ];
 
+// The canonical world map. This is the single source of truth for
+// room names/flavor/tags — the client's Ashen Map keeps an identical
+// copy (it can't import this file directly), but the *position*
+// within this list now lives only here, in sessions.current_room_index,
+// so the map and the story are reading the exact same state instead of
+// two independent guesses that could silently drift apart.
+const ROOMS = [
+  { name: 'Ash', kind: 'Safe zone', flavor: 'Rest at the bonfire and prepare.', tags: [['Exits', 'Gate, Garden']] },
+  { name: 'Gate', kind: 'Enemy territory', flavor: 'Hollow Soldiers patrol the gate and watch the road.', tags: [['Enemies', '3 Hollow Soldiers'], ['Aggro range', '30 ft'], ['Exits', 'Ash, Shrine']] },
+  { name: 'Garden', kind: 'Enemy territory', flavor: 'Beasts stalk the darkroot paths between the trees.', tags: [['Enemies', 'Forest Beasts'], ['Aggro range', '50 ft'], ['Exits', 'Ash, Throne']] },
+  { name: 'Shrine', kind: 'Safe zone', flavor: 'The fire remembers your name. Wounds may be tended here.', tags: [['Bonfire', 'Rest, level up, manage inventory'], ['Exits', 'Ash, Crypt']] },
+  { name: 'Crypt', kind: 'Enemy territory', flavor: 'Skeletons wait beneath the old stones and broken graves.', tags: [['Enemies', 'Skeletons'], ['Aggro range', '40 ft'], ['Exits', 'Shrine, Tower']] },
+  { name: 'Tower', kind: 'Enemy territory', flavor: 'Knights defend a broken tower under red lightning.', tags: [['Enemies', 'Knights'], ['Aggro range', '40 ft'], ['Exits', 'Crypt, Marsh']] },
+  { name: 'Marsh', kind: 'Enemy territory', flavor: 'Infected wander through the mist, hunting movement.', tags: [['Enemies', 'Infected'], ['Aggro range', '40 ft'], ['Exits', 'Garden, Keep']] },
+  { name: 'Keep', kind: 'Enemy territory', flavor: 'Thieves guard the sealed keep and its hidden routes.', tags: [['Enemies', 'Thieves'], ['Aggro range', '40 ft'], ['Exits', 'Marsh, Throne']] },
+  { name: 'Throne', kind: 'Boss lair', flavor: 'The throne room belongs to the Ashen Sovereign. Enter only when ready.', tags: [['Boss', 'Ashen Sovereign'], ['Lair', ''], ['Exits', 'Keep']] },
+];
+
+// How many real turns (not counting party-splash pseudo-entries) it
+// takes to advance one room. Kept as a named constant so it's easy
+// to find and tune later — was previously a magic "/2" scattered on
+// the client with no server equivalent at all.
+const TURNS_PER_ROOM = 2;
+
+function roomIndexForTurnCount(turnsTaken: number): number {
+  return Math.min(ROOMS.length - 1, Math.floor(turnsTaken / TURNS_PER_ROOM));
+}
+
 // Deterministic items — their effects never depend on the story engine,
 // so using one always does exactly what it says, regardless of AI
 // availability or quota.
@@ -273,6 +301,8 @@ export async function generateOne(
     bossHealth = bossMaxHealth;
   }
 
+  const currentRoomIndex = Math.min(ROOMS.length - 1, Math.max(0, Number(session.current_room_index) || 0));
+
   // ---------------- Item use (fully deterministic, no dice roll) ----------------
   if (itemId) {
     const inventory: any[] = Array.isArray(actingPlayer.inventory) ? actingPlayer.inventory : [];
@@ -353,6 +383,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
       const { error: itemWinError } = await db.from('sessions').update({
         status: 'completed',
         boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: 0,
+        current_room_index: currentRoomIndex,
         story_narrative: summary, story_choices: [], story_history: newHistory, vote_state: {},
         updated_at: new Date().toISOString(),
       }).eq('id', sessionId);
@@ -368,6 +399,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
       const { error: itemLossError } = await db.from('sessions').update({
         status: 'completed',
         boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: newBossHealth,
+        current_room_index: currentRoomIndex,
         story_narrative: summary, story_choices: [], story_history: newHistory, vote_state: {},
         updated_at: new Date().toISOString(),
       }).eq('id', sessionId);
@@ -389,6 +421,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
     const { error: itemTurnError } = await db.from('sessions').update({
       current_turn_index: nextIndex,
       boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: newBossHealth,
+      current_room_index: currentRoomIndex,
       story_narrative: narrative,
       story_choices: (result.choices ?? []).slice(0, 3),
       story_history: newHistory,
@@ -414,15 +447,18 @@ Narrate this moment vividly, then give the next three choices for whichever play
     : 'nothing notable';
 
   let userPrompt: string;
+  const currentRoom = ROOMS[currentRoomIndex];
   if (kickoff) {
     userPrompt = `Begin a brand-new session for ${players.length} player(s): ${players.map((p: any) => p.display_name).join(', ')}.
 The party faces a boss called ${bossName}.
+The party begins in the room "${currentRoom.name}": ${currentRoom.flavor}
 There is no prior choice yet. Set healthImpact, bossImpact, and soulsGained to 0. Begin at the bonfire with the canonical opening: the player awakens at a crumbling bonfire beneath an ash-colored sky, remembers only that the fire chose them, and sees their companions stir. Do not introduce the boss yet. The first three choices are for ${actingPlayer.display_name}, a ${actingPlayer.race} ${actingPlayer.class} carrying: ${inventoryText}.`;
   } else {
     const choices: string[] = session.story_choices ?? [];
     const chosenText = choices[choiceIndex!];
     if (chosenText === undefined) throw new Error('Invalid choice.');
     userPrompt = `Story so far:\n${historyText || '(this is the first turn)'}\n\nThe boss, ${bossName}, is still in the fight.
+The party is currently in the room "${currentRoom.name}": ${currentRoom.flavor} Weave this setting into the scene naturally — don't just restate it.
 ${actingPlayer.display_name} (a ${actingPlayer.race} ${actingPlayer.class}, health ${actingPlayer.health}, carrying: ${inventoryText}) just chose: "${chosenText}".
 Write the outcome of that choice for ${actingPlayer.display_name} and give the next three choices for whichever player will act next.`;
   }
@@ -446,6 +482,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
   let rollValue: number | null = null;
   let partyLabel: string | null = null;
   let lootedItemName: string | null = null;
+  let newRoomIndex = currentRoomIndex;
 
   if (!kickoff) {
     const { modifier, statUsed } = resolveModifier(actingPlayer, result.relevantStat);
@@ -530,6 +567,18 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     if (nextLevel > currentLevel) lines.push(`${actingPlayer.display_name} reaches Level ${nextLevel} and gains ${statPoints - Number(actingPlayer.unallocated_stat_points || 0)} stat points.`);
     if (!isAlive) lines.push(`${actingPlayer.display_name} has fallen. The dead pass into Ghost Mode.`);
     if (partyLabel) lines.push(partyLabel);
+
+    // The map and the story share one source of truth now: this same
+    // turn count decides both which room lights up on the Ashen Map
+    // and what the next room-transition line says, so they can never
+    // show two different locations.
+    const turnsTaken = history.length + 1;
+    newRoomIndex = roomIndexForTurnCount(turnsTaken);
+    if (newRoomIndex !== currentRoomIndex) {
+      const newRoom = ROOMS[newRoomIndex];
+      lines.push(`The party presses onward into ${newRoom.name} — ${newRoom.flavor}`);
+    }
+
     narrative = lines.join('\n\n');
     lootedItemName = lootedItem?.name ?? null;
   }
@@ -555,6 +604,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     const { error: winUpdateError } = await db.from('sessions').update({
       status: 'completed',
       boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: 0,
+      current_room_index: newRoomIndex,
       story_narrative: summary,
       story_choices: [],
       story_history: newHistory,
@@ -573,6 +623,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     const { error: lossUpdateError } = await db.from('sessions').update({
       status: 'completed',
       boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: bossHealth,
+      current_room_index: newRoomIndex,
       story_narrative: summary,
       story_choices: [],
       story_history: newHistory,
@@ -599,6 +650,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
   const { error: turnUpdateError } = await db.from('sessions').update({
     current_turn_index: nextIndex,
     boss_name: bossName, boss_max_health: bossMaxHealth, boss_health: bossHealth,
+    current_room_index: newRoomIndex,
     story_narrative: narrative,
     story_choices: (result.choices ?? []).slice(0, 3),
     story_history: newHistory,
@@ -629,6 +681,7 @@ export async function resetSessionInternal(db: SupabaseClient, sessionId: string
     boss_name: 'The Nameless Dread',
     boss_max_health: 100,
     boss_health: 100,
+    current_room_index: 0,
     story_narrative: 'A new tale begins… The ember has been rekindled.',
     story_choices: [],
     story_history: [],

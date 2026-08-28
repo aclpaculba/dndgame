@@ -1613,6 +1613,24 @@ body.theme-plain *::after {
   font-size: 0.68rem;
 }
 
+.map-popover-description .map-kind {
+  display: block;
+}
+
+.map-tag {
+  margin-top: 4px;
+  margin-left: 10px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.map-tag strong {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 700;
+  color: #f0c477;
+}
+
 .equipment-panel {
   margin-bottom: var(--space-md);
   padding-bottom: var(--space-sm);

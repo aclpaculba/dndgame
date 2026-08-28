@@ -1028,19 +1028,31 @@ function renderAshenMap() {
   const map = $('mini-map');
   if (!map) return;
   const rooms = ['Ash', 'Gate', 'Garden', 'Shrine', 'Crypt', 'Tower', 'Marsh', 'Keep', 'Throne'];
+  // Kept identical to the ROOMS list in supabase/functions/_shared/game.ts
+  // (the client can't import that server-side file directly). Each
+  // room's flavor line here is only used for the fallback path below;
+  // the tags array is what actually renders in the popover, one bold
+  // label per line.
   const details = [
-    ['Safe zone', 'Rest at the bonfire and prepare.', 'Exits: Gate, Garden'],
-    ['Enemy territory', 'Hollow Soldiers patrol the gate and watch the road.', 'Enemies: 3 Hollow Soldiers · Aggro range: 30 ft · Exits: Ash, Shrine'],
-    ['Enemy territory', 'Beasts stalk the darkroot paths between the trees.', 'Enemies: Forest Beasts · Aggro range: 50 ft · Exits: Ash, Throne'],
-    ['Safe zone', 'The fire remembers your name. Wounds may be tended here.', 'Bonfire: Rest, level up, manage inventory · Exits: Ash, Crypt'],
-    ['Enemy territory', 'Skeletons wait beneath the old stones and broken graves.', 'Enemies: Skeletons · Aggro range: 40 ft · Exits: Shrine, Tower'],
-    ['Enemy territory', 'Knights defend a broken tower under red lightning.', 'Enemies: Knights · Aggro range: 40 ft · Exits: Crypt, Marsh'],
-    ['Enemy territory', 'Infected wander through the mist, hunting movement.', 'Enemies: Infected · Aggro range: 40 ft · Exits: Garden, Keep'],
-    ['Enemy territory', 'Thieves guard the sealed keep and its hidden routes.', 'Enemies: Thieves · Aggro range: 40 ft · Exits: Marsh, Throne'],
-    ['Boss lair', 'The throne room belongs to the Ashen Sovereign. Enter only when ready.', 'Boss: Ashen Sovereign · Lair · Exits: Keep']
+    ['Safe zone', 'Rest at the bonfire and prepare.', [['Exits', 'Gate, Garden']]],
+    ['Enemy territory', 'Hollow Soldiers patrol the gate and watch the road.', [['Enemies', '3 Hollow Soldiers'], ['Aggro range', '30 ft'], ['Exits', 'Ash, Shrine']]],
+    ['Enemy territory', 'Beasts stalk the darkroot paths between the trees.', [['Enemies', 'Forest Beasts'], ['Aggro range', '50 ft'], ['Exits', 'Ash, Throne']]],
+    ['Safe zone', 'The fire remembers your name. Wounds may be tended here.', [['Bonfire', 'Rest, level up, manage inventory'], ['Exits', 'Ash, Crypt']]],
+    ['Enemy territory', 'Skeletons wait beneath the old stones and broken graves.', [['Enemies', 'Skeletons'], ['Aggro range', '40 ft'], ['Exits', 'Shrine, Tower']]],
+    ['Enemy territory', 'Knights defend a broken tower under red lightning.', [['Enemies', 'Knights'], ['Aggro range', '40 ft'], ['Exits', 'Crypt, Marsh']]],
+    ['Enemy territory', 'Infected wander through the mist, hunting movement.', [['Enemies', 'Infected'], ['Aggro range', '40 ft'], ['Exits', 'Garden, Keep']]],
+    ['Enemy territory', 'Thieves guard the sealed keep and its hidden routes.', [['Enemies', 'Thieves'], ['Aggro range', '40 ft'], ['Exits', 'Marsh, Throne']]],
+    ['Boss lair', 'The throne room belongs to the Ashen Sovereign. Enter only when ready.', [['Boss', 'Ashen Sovereign'], ['Lair', ''], ['Exits', 'Keep']]]
   ];
   const markers = ['●', '🔴', '🔴', '●', '🔴', '🔴', '🔴', '🔴', '👑'];
-  const pathIndex = Math.min(rooms.length - 1, Math.floor((latestSession?.story_history?.length || 0) / 2));
+  // The server now decides the party's actual room and writes it to
+  // sessions.current_room_index every turn — the map just reads that
+  // value directly, so it and the story can never show two different
+  // locations. Sessions from before this existed fall back to the old
+  // turn-count guess so they don't just show "Ash" forever.
+  const pathIndex = Number.isInteger(latestSession?.current_room_index)
+    ? Math.min(rooms.length - 1, Math.max(0, latestSession.current_room_index))
+    : Math.min(rooms.length - 1, Math.floor((latestSession?.story_history?.length || 0) / 2));
   map.innerHTML = rooms.map((room, index) => `
     <button class="map-node ${index === pathIndex ? 'current' : ''} ${index < pathIndex ? 'visited' : ''}" type="button" data-map-index="${index}" aria-label="View ${room}">${index === pathIndex ? '◆' : markers[index]}</button>
   `).join('');
@@ -1050,7 +1062,12 @@ function renderAshenMap() {
     node.addEventListener('click', () => {
       const index = Number(node.dataset.mapIndex);
       $('map-popover-title').textContent = rooms[index];
-      $('map-popover-description').innerHTML = `<strong>${details[index][0]}</strong><br>${details[index][1]}<br><small>${details[index][2]}</small>`;
+      const [kind, flavor, tags] = details[index];
+      const tagLines = tags
+        .filter(([, value]) => value !== '' || true)
+        .map(([label, value]) => `<div class="map-tag"><strong>${escapeHtml(label)}${value ? ':' : ''}</strong>${value ? ` ${escapeHtml(value)}` : ''}</div>`)
+        .join('');
+      $('map-popover-description').innerHTML = `<strong class="map-kind">${escapeHtml(kind)}</strong><br>${escapeHtml(flavor)}${tagLines}`;
       $('map-popover')?.classList.remove('hidden');
     });
   });
