@@ -12,7 +12,7 @@ You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching
 - "healthImpact" is your baseline suggestion for the ACTING PLAYER, an integer between -35 and 15 (negative = damage, positive = healing/relief).
 - "bossImpact" is your baseline suggestion for the CURRENT ENEMY (monster or boss, whichever the engine told you is active), an integer between -30 and 10 (negative = damage dealt to it, positive = it recovering or gaining ground) — most actions aimed at the enemy should deal some damage; actions that don't engage it directly can use 0.
 - "relevantStat" is exactly one of: strength, dexterity, constitution, intelligence, wisdom, charisma — whichever ability best explains why this action might succeed or fail.
-- Souls pay for levels at 100 × current level. Each level grants 3 stat points; the maximum level and stat are 99 and 20. The engine awards souls only when an enemy is actually defeated — never mention a specific soul amount yourself.
+- Souls pay for levels at 100 × current level. Each level grants 3 stat points; the maximum level and stat are 99 and 20. The engine awards souls only when an enemy is actually defeated, splitting a boss's reward across everyone who damaged it during the fight — never mention a specific soul amount yourself.
 - Every ability score has a real mechanical role the engine applies on top of your suggestion: STR, DEX, and INT all add to damage dealt; DEX, CON, and WIS all reduce damage taken; CHA amplifies the party's best moments and softens its worst. You don't need to calculate any of this — just write choices and prose that let a character's strong stats plausibly shine.
 - Inventory uses weapon, off-hand, armor, helm, boots, ring1, and ring2 slots. Items may have requirements, bonuses, consumable effects, and weight; never grant impossible equipment without narrative justification.
 - Regular monsters are territorial: place them in named regions, show them before they notice the party, and offer fight, sneak, observe, bait, or retreat. Bosses do not roam and are noticeably tougher and more dangerous than a regular monster — describe boss phases at 75%, 50%, and 25% HP thresholds when the engine tells you the current enemy is a boss.
@@ -44,14 +44,6 @@ const MONSTER_NAMES = [
   'Starving Hound',
 ];
 
-// The canonical world map. This is the single source of truth for
-// room flavor — the client's Ashen Map keeps an identical copy (it
-// can't import this file directly), but the *position* within it
-// lives only here, in sessions.current_room_index. Progression is
-// unbounded (the path never ends), so room names cycle through this
-// list with a Roman-numeral suffix once the party loops back around
-// — see roomDisplayName(). "safeZone: true" rooms never spawn a
-// monster or boss; the party rests there instead.
 const ROOMS = [
   { name: 'Ash', flavor: 'A crumbling bonfire throws thin light across the ruins.', safeZone: true },
   { name: 'Gate', flavor: 'A broken gate watches over a road choked with ash.', safeZone: false },
@@ -63,7 +55,10 @@ const ROOMS = [
   { name: 'Keep', flavor: 'A sealed keep, its walls scarred by some old siege.', safeZone: false },
 ];
 
-const SAFE_ZONE_CHOICES = ['Rest at the bonfire and heal fully', 'Keep watch while the others rest'];
+const SAFE_ZONE_CHOICES = ['Rest at the bonfire', 'Keep watch while the others rest'];
+
+const REST_HEAL_MIN = 5;
+const REST_HEAL_MAX = 10;
 
 const ROMAN_NUMERALS: Array<[number, string]> = [
   [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'],
@@ -173,14 +168,6 @@ function getStatModifier(score: number): number {
   return Math.floor((score - 10) / 2);
 }
 
-// ---------------- All six stats matter, not just whichever one the
-// story engine flags as "relevant" for a given action ----------------
-// STR/DEX/INT push damage dealt up; DEX/CON/WIS pull damage taken
-// down; CHA amplifies the party's best rolls and softens its worst.
-// Each is capped well below the raw crit swings (±45 damage) so a
-// maxed-out character is meaningfully tougher without making the
-// fight predictable — a lucky or unlucky roll can still swing things
-// hard either way, which is the whole point of a dice game.
 function offenseBonus(player: any): number {
   const raw = getStatModifier(player.strength ?? 8) + getStatModifier(player.dexterity ?? 8) + getStatModifier(player.intelligence ?? 8);
   return Math.max(-10, Math.min(10, raw));
@@ -348,25 +335,98 @@ function applySoulsAndLevel(player: any, soulsGained: number) {
   };
 }
 
+async function bumpProfileStats(
+  db: SupabaseClient,
+  profileId: string,
+  bumps: { damageDealt?: number; damageTaken?: number; enemiesSlain?: number; bossesSlain?: number; sectionsCleared?: number },
+) {
+  try {
+    const { data: profile, error: readError } = await db.from('profiles')
+      .select('total_damage_dealt, total_damage_taken, enemies_slain, bosses_slain, sections_cleared, highest_single_hit')
+      .eq('id', profileId).maybeSingle();
+    if (readError || !profile) return;
+
+    const update: Record<string, number> = {};
+    if (bumps.damageDealt && bumps.damageDealt > 0) {
+      update.total_damage_dealt = Math.max(0, Number(profile.total_damage_dealt || 0)) + bumps.damageDealt;
+      update.highest_single_hit = Math.max(Number(profile.highest_single_hit || 0), bumps.damageDealt);
+    }
+    if (bumps.damageTaken && bumps.damageTaken > 0) {
+      update.total_damage_taken = Math.max(0, Number(profile.total_damage_taken || 0)) + bumps.damageTaken;
+    }
+    if (bumps.enemiesSlain) {
+      update.enemies_slain = Math.max(0, Number(profile.enemies_slain || 0)) + bumps.enemiesSlain;
+    }
+    if (bumps.bossesSlain) {
+      update.bosses_slain = Math.max(0, Number(profile.bosses_slain || 0)) + bumps.bossesSlain;
+    }
+    if (bumps.sectionsCleared) {
+      update.sections_cleared = Math.max(0, Number(profile.sections_cleared || 0)) + bumps.sectionsCleared;
+    }
+    if (Object.keys(update).length === 0) return;
+
+    const { error: writeError } = await db.from('profiles').update(update).eq('id', profileId);
+    if (writeError) console.error('[db] Failed to bump profile stats:', JSON.stringify(writeError));
+  } catch (err) {
+    console.error('[db] bumpProfileStats threw:', String(err));
+  }
+}
+
 async function resolveEnemyDefeat(
   db: SupabaseClient,
   sessionId: string,
   actingUid: string,
   actingPlayer: any,
+  allPlayers: any[],
   roomIndex: number,
   encounterNumber: number,
   wasBoss: boolean,
   enemyName: string,
   playerCount: number,
 ) {
-  const soulsGained = soulsForDefeat(wasBoss, roomIndex);
-  const { totalSouls, nextLevel, statPoints, leveledUp, gainedPoints } = applySoulsAndLevel(actingPlayer, soulsGained);
+  let rewardSummary: string;
 
-  const { error: killUpdateError } = await db.from('players')
-    .update({ souls: totalSouls, level: nextLevel, unallocated_stat_points: statPoints })
-    .eq('session_id', sessionId).eq('user_id', actingUid);
-  if (killUpdateError) {
-    console.error('[db] Failed to save kill reward:', JSON.stringify(killUpdateError));
+  if (wasBoss) {
+    const totalPool = soulsForDefeat(true, roomIndex);
+    const contributions = allPlayers
+      .map((p: any) => ({ uid: p.user_id, name: p.display_name, amount: Math.max(0, Number(p.boss_damage_contribution || 0)), row: p }))
+      .filter((c) => c.amount > 0);
+    const totalContribution = contributions.reduce((sum, c) => sum + c.amount, 0);
+
+    const rewardLines: string[] = [];
+    if (totalContribution <= 0) {
+      const { totalSouls, nextLevel, statPoints, leveledUp, gainedPoints } = applySoulsAndLevel(actingPlayer, totalPool);
+      const { error } = await db.from('players').update({ souls: totalSouls, level: nextLevel, unallocated_stat_points: statPoints })
+        .eq('session_id', sessionId).eq('user_id', actingUid);
+      if (error) console.error('[db] Failed to save boss reward (fallback):', JSON.stringify(error));
+      rewardLines.push(`${actingPlayer.display_name} claims ${totalPool} souls${leveledUp ? ` and reaches Level ${nextLevel} (+${gainedPoints} stat points)` : ''}.`);
+    } else {
+      for (const c of contributions) {
+        const share = Math.max(1, Math.round(totalPool * (c.amount / totalContribution)));
+        const { totalSouls, nextLevel, statPoints, leveledUp, gainedPoints } = applySoulsAndLevel(c.row, share);
+        const { error } = await db.from('players').update({ souls: totalSouls, level: nextLevel, unallocated_stat_points: statPoints })
+          .eq('session_id', sessionId).eq('user_id', c.uid);
+        if (error) console.error('[db] Failed to save boss reward share:', JSON.stringify(error));
+        rewardLines.push(`${c.name} claims ${share} souls for their part in the fight${leveledUp ? ` and reaches Level ${nextLevel} (+${gainedPoints} stat points)` : ''}.`);
+      }
+    }
+    await bumpProfileStats(db, actingUid, { enemiesSlain: 1, bossesSlain: 1, sectionsCleared: 1 });
+    rewardSummary = rewardLines.join(' ');
+
+    for (const p of allPlayers) {
+      if (Number(p.boss_damage_contribution || 0) !== 0) {
+        const { error } = await db.from('players').update({ boss_damage_contribution: 0 }).eq('session_id', sessionId).eq('user_id', p.user_id);
+        if (error) console.error('[db] Failed to reset boss_damage_contribution:', JSON.stringify(error));
+      }
+    }
+  } else {
+    const soulsGained = soulsForDefeat(false, roomIndex);
+    const { totalSouls, nextLevel, statPoints, leveledUp, gainedPoints } = applySoulsAndLevel(actingPlayer, soulsGained);
+    const { error } = await db.from('players').update({ souls: totalSouls, level: nextLevel, unallocated_stat_points: statPoints })
+      .eq('session_id', sessionId).eq('user_id', actingUid);
+    if (error) console.error('[db] Failed to save monster reward:', JSON.stringify(error));
+    await bumpProfileStats(db, actingUid, { enemiesSlain: 1 });
+    rewardSummary = `${actingPlayer.display_name} claims ${soulsGained} souls.` + (leveledUp ? ` ${actingPlayer.display_name} reaches Level ${nextLevel} and gains ${gainedPoints} stat points.` : '');
   }
 
   let newRoomIndex = roomIndex;
@@ -379,6 +439,15 @@ async function resolveEnemyDefeat(
   const nextIsSafeZone = wasBoss && isSafeZoneRoom(newRoomIndex);
   const nextEncounter = nextIsSafeZone ? null : spawnEncounter(newRoomIndex, newEncounterNumber, playerCount);
 
+  if (nextEncounter && nextEncounter.isBoss) {
+    for (const p of allPlayers) {
+      if (Number(p.boss_damage_contribution || 0) !== 0) {
+        const { error } = await db.from('players').update({ boss_damage_contribution: 0 }).eq('session_id', sessionId).eq('user_id', p.user_id);
+        if (error) console.error('[db] Failed to pre-clear boss_damage_contribution:', JSON.stringify(error));
+      }
+    }
+  }
+
   let transitionLine: string;
   if (!wasBoss) {
     transitionLine = `${enemyName} falls. ${nextEncounter!.name} stirs nearby.`;
@@ -388,15 +457,12 @@ async function resolveEnemyDefeat(
     transitionLine = `${enemyName} finally falls! The path opens — the party presses onward into ${roomDisplayName(newRoomIndex)}, where ${nextEncounter!.name} awaits.`;
   }
 
-  const lines = [transitionLine, `${actingPlayer.display_name} claims ${soulsGained} souls.`];
-  if (leveledUp) lines.push(`${actingPlayer.display_name} reaches Level ${nextLevel} and gains ${gainedPoints} stat points.`);
-
   return {
     newRoomIndex,
     newEncounterNumber: nextIsSafeZone ? 1 : newEncounterNumber,
     nextEncounter,
     enteredSafeZone: nextIsSafeZone,
-    narrativeExtra: lines.join(' '),
+    narrativeExtra: `${transitionLine} ${rewardSummary}`,
   };
 }
 
@@ -441,9 +507,6 @@ export async function generateOne(
     isBossNow = spawned.isBoss;
   }
 
-  // ================================================================
-  // Item use is always available, safe zone or not.
-  // ================================================================
   if (itemId) {
     const inventory: any[] = Array.isArray(actingPlayer.inventory) ? actingPlayer.inventory : [];
     const item = inventory.find((it) => it.id === itemId);
@@ -472,14 +535,23 @@ export async function generateOne(
     const newHealth = Math.max(0, Math.min(maxHealth, actingPlayer.health + playerHealthDelta));
     const isAlive = newHealth > 0;
     const remainingInventory = inventory.filter((it) => it.id !== itemId);
+    const itemDamageDealt = enemyHealthDelta < 0 ? Math.abs(enemyHealthDelta) : 0;
+    const itemDamageTaken = playerHealthDelta < 0 ? Math.abs(playerHealthDelta) : 0;
+    const newContribution = (isBossNow && itemDamageDealt > 0)
+      ? Math.max(0, Number(actingPlayer.boss_damage_contribution || 0)) + itemDamageDealt
+      : Number(actingPlayer.boss_damage_contribution || 0);
 
     const { error: itemPlayerUpdateError } = await db.from('players').update({
       health: newHealth, is_alive: isAlive, inventory: remainingInventory,
       status: statusForHealth(newHealth, maxHealth),
+      boss_damage_contribution: newContribution,
     }).eq('session_id', sessionId).eq('user_id', actingUid);
     if (itemPlayerUpdateError) {
       console.error('[db] Failed to update player after item use:', JSON.stringify(itemPlayerUpdateError));
       throw new Error('Could not save item effect: ' + itemPlayerUpdateError.message);
+    }
+    if (itemDamageDealt > 0 || itemDamageTaken > 0) {
+      await bumpProfileStats(db, actingUid, { damageDealt: itemDamageDealt, damageTaken: itemDamageTaken });
     }
 
     if (inSafeZone) {
@@ -532,7 +604,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
 
     let narrative = String(result.narrative || effectSummary);
     const updatedPlayers = players.map((p: any) =>
-      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, status: statusForHealth(newHealth, maxHealth) } : p);
+      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, status: statusForHealth(newHealth, maxHealth), boss_damage_contribution: newContribution } : p);
     const aliveCount = updatedPlayers.filter((p: any) => p.is_alive).length;
 
     let finalEnemyName = enemyName;
@@ -545,7 +617,7 @@ Narrate this moment vividly, then give the next three choices for whichever play
 
     if (newEnemyHealth <= 0) {
       const defeat = await resolveEnemyDefeat(
-        db, sessionId, actingUid, actingPlayer,
+        db, sessionId, actingUid, updatedPlayers.find((p: any) => p.user_id === actingUid), updatedPlayers,
         currentRoomIndex, encounterNumber, isBossNow, enemyName, players.length,
       );
       narrative = `${narrative}\n\n${defeat.narrativeExtra}`;
@@ -615,11 +687,6 @@ Narrate this moment vividly, then give the next three choices for whichever play
     return;
   }
 
-  // ================================================================
-  // Safe zone: no monster, no boss, no dice roll — fully
-  // deterministic. Once every alive player has taken one turn here,
-  // the party automatically moves to the next room.
-  // ================================================================
   if (inSafeZone) {
     const room = roomAt(currentRoomIndex);
 
@@ -659,11 +726,12 @@ The party begins in a SAFE ZONE — the room "${roomDisplayName(currentRoomIndex
     const isRestChoice = choiceIndex === 0;
 
     const maxHealth = Math.max(1, Number(actingPlayer.max_health || 100));
-    const newHealth = isRestChoice ? maxHealth : actingPlayer.health;
+    const healAmount = isRestChoice ? (REST_HEAL_MIN + Math.floor(Math.random() * (REST_HEAL_MAX - REST_HEAL_MIN + 1))) : 0;
+    const newHealth = Math.min(maxHealth, actingPlayer.health + healAmount);
     const healedAmount = newHealth - actingPlayer.health;
     const flavorLine = isRestChoice
       ? (healedAmount > 0
-        ? `${actingPlayer.display_name} rests at the bonfire. Warmth returns to aching limbs — fully healed.`
+        ? `${actingPlayer.display_name} rests at the bonfire and recovers ${healedAmount} health.`
         : `${actingPlayer.display_name} rests at the bonfire, already at full strength.`)
       : `${actingPlayer.display_name} keeps watch while the ashes settle, staying alert as the others rest.`;
 
@@ -766,9 +834,6 @@ They now face a ${nextEncounter.isBoss ? 'boss' : 'monster'} called ${nextEncoun
     return;
   }
 
-  // ================================================================
-  // Normal turn: an actual fight, kickoff or a chosen story option.
-  // ================================================================
   const historyText = history.slice(-6)
     .map((h: any) => h.party ? `- (party) ${h.outcome}` : `- ${h.player}: chose "${h.choice}" → ${h.outcome}`)
     .join('\n');
@@ -840,6 +905,12 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
     const isAlive = newHealth > 0;
     const status = statusForHealth(newHealth, maxHealth);
 
+    const damageDealtToEnemy = appliedEnemyImpact < 0 ? Math.abs(appliedEnemyImpact) : 0;
+    const damageTakenBySelf = appliedImpact < 0 ? Math.abs(appliedImpact) : 0;
+    const newContribution = (isBossNow && damageDealtToEnemy > 0)
+      ? Math.max(0, Number(actingPlayer.boss_damage_contribution || 0)) + damageDealtToEnemy
+      : Number(actingPlayer.boss_damage_contribution || 0);
+
     let lootedItem: (typeof ITEM_POOL)[number] & { id: string } | null = null;
     if (isAlive && (roll.isCritSuccess || (!roll.isCritFail && Math.random() < 0.3))) {
       const template = ITEM_POOL[Math.floor(Math.random() * ITEM_POOL.length)];
@@ -850,14 +921,18 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
 
     const { error: playerUpdateError } = await db.from('players').update({
       health: newHealth, is_alive: isAlive, inventory: newInventory, status,
+      boss_damage_contribution: newContribution,
     }).eq('session_id', sessionId).eq('user_id', actingUid);
     if (playerUpdateError) {
       console.error('[db] Failed to update acting player:', JSON.stringify(playerUpdateError));
       throw new Error('Could not save the acting player\'s new health/inventory: ' + playerUpdateError.message);
     }
+    if (damageDealtToEnemy > 0 || damageTakenBySelf > 0) {
+      await bumpProfileStats(db, actingUid, { damageDealt: damageDealtToEnemy, damageTaken: damageTakenBySelf });
+    }
 
     updatedPlayers = players.map((p: any) =>
-      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, inventory: newInventory, status } : p);
+      p.user_id === actingUid ? { ...p, health: newHealth, is_alive: isAlive, inventory: newInventory, status, boss_damage_contribution: newContribution } : p);
 
     if (partyImpact !== 0) {
       const others = updatedPlayers.filter((p: any) => p.user_id !== actingUid && p.is_alive);
@@ -869,6 +944,9 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
           .eq('session_id', sessionId).eq('user_id', other.user_id);
         if (otherUpdateError) {
           console.error('[db] Failed to update party-splash player:', JSON.stringify(otherUpdateError));
+        }
+        if (partyImpact < 0) {
+          await bumpProfileStats(db, other.user_id, { damageTaken: Math.abs(partyImpact) });
         }
         updatedPlayers = updatedPlayers.map((p: any) =>
           p.user_id === other.user_id ? { ...p, health: otherHealth, is_alive: otherAlive, status: statusForHealth(otherHealth, otherMaxHealth) } : p);
@@ -889,7 +967,7 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
 
     if (finalEnemyHealth <= 0) {
       const defeat = await resolveEnemyDefeat(
-        db, sessionId, actingUid, updatedPlayers.find((p: any) => p.user_id === actingUid),
+        db, sessionId, actingUid, updatedPlayers.find((p: any) => p.user_id === actingUid), updatedPlayers,
         currentRoomIndex, encounterNumber, isBossNow, enemyName, players.length,
       );
       lines.push(defeat.narrativeExtra);

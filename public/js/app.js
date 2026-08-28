@@ -974,6 +974,55 @@ $('modal-character-stats')?.addEventListener('click', (e) => {
   }
 });
 
+// ---------- All-Time Stats (permanent, cross-session — lives on the
+// profile, not the per-session player row, since a new players row
+// is created every time someone joins a table) ----------
+async function openAllTimeStats() {
+  const content = $('alltime-content');
+  const modal = $('modal-alltime-stats');
+  if (!content || !modal || !currentUser) return;
+
+  content.innerHTML = '<p class="text-muted" style="padding: var(--space-md) 0;">Loading…</p>';
+  modal.showModal();
+
+  const { data, error } = await sb.from('profiles')
+    .select('total_damage_dealt, total_damage_taken, enemies_slain, bosses_slain, sections_cleared, highest_single_hit')
+    .eq('id', currentUser.uid).maybeSingle();
+
+  if (error || !data) {
+    content.innerHTML = '<p class="text-muted" style="padding: var(--space-md) 0;">Could not load your stats.</p>';
+    return;
+  }
+
+  content.innerHTML = `
+    <div class="stats-sheet">
+      <div class="stat-item"><span class="stat-label">Enemies slain</span><span class="stat-value">${data.enemies_slain || 0}</span></div>
+      <div class="stat-item"><span class="stat-label">Bosses slain</span><span class="stat-value">${data.bosses_slain || 0}</span></div>
+      <div class="stat-item"><span class="stat-label">Sections cleared</span><span class="stat-value">${data.sections_cleared || 0}</span></div>
+      <div class="stat-item"><span class="stat-label">Total damage dealt</span><span class="stat-value">${data.total_damage_dealt || 0}</span></div>
+      <div class="stat-item"><span class="stat-label">Total damage taken</span><span class="stat-value">${data.total_damage_taken || 0}</span></div>
+      <div class="stat-item"><span class="stat-label">Highest single hit</span><span class="stat-value">${data.highest_single_hit || 0}</span></div>
+    </div>
+    <p class="text-muted ability-info-footnote">These totals follow your username across every table you ever play — they never reset when a session ends.</p>
+  `;
+}
+
+$('lobby-username')?.addEventListener('click', () => {
+  sounds.playClick();
+  openAllTimeStats();
+});
+
+$('btn-alltime-close')?.addEventListener('click', () => {
+  const modal = $('modal-alltime-stats');
+  if (modal) modal.close();
+});
+
+$('modal-alltime-stats')?.addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) {
+    e.currentTarget.close();
+  }
+});
+
 // ---------- Game Screen ----------
 async function refreshGameState() {
   const [{ data: session }, { data: players }] = await Promise.all([
@@ -1274,6 +1323,16 @@ function renderGame() {
   renderAshenMap();
   renderHallOfDead();
 
+  // Rooms 0 (Ash) and 3 (Shrine) in the cycle are safe zones — kept
+  // in sync with the safeZone flags on ROOMS in
+  // supabase/functions/_shared/game.ts (the client can't import that
+  // file directly). When the party is in one, there's no enemy at
+  // all, so the boss/monster health bar is replaced by a calm banner
+  // instead of showing stale or zeroed-out combat info.
+  const SAFE_ZONE_ROOM_SLOTS = new Set([0, 3]);
+  const currentRoomIdx = Number.isInteger(latestSession?.current_room_index) ? latestSession.current_room_index : 0;
+  const inSafeZoneNow = SAFE_ZONE_ROOM_SLOTS.has(currentRoomIdx % 8);
+
   // Enemy Health Bar (regular monster or boss — same bar either way,
   // but bosses get the dramatic phase framing and a badge; regular
   // monsters get a plainer label so they don't feel falsely epic).
@@ -1282,7 +1341,11 @@ function renderGame() {
   const bossHealthFillEl = $('boss-health-fill');
   const bossPhaseEl = $('boss-phase');
   const bossPanelEl = $('boss-panel');
-  if (bossNameEl && bossHealthNumEl && bossHealthFillEl) {
+  const safeZoneBannerEl = $('safe-zone-banner');
+  safeZoneBannerEl?.classList.toggle('hidden', !inSafeZoneNow);
+  if (inSafeZoneNow) {
+    bossPanelEl?.classList.add('hidden');
+  } else if (bossNameEl && bossHealthNumEl && bossHealthFillEl) {
     const bossMax = latestSession.boss_max_health || 100;
     const bossHealth = Math.max(0, Math.min(bossMax, latestSession.boss_health ?? bossMax));
     const isBossEncounter = !!latestSession.is_boss_encounter;
@@ -1335,7 +1398,9 @@ function renderGame() {
       return `
         <li class="player-item ${isTurn ? 'current-turn' : ''} ${!p.is_alive ? 'eliminated' : ''}" data-user-id="${p.user_id}">
           <div class="p-name">
-            <span>${escapeHtml(characterName)}${p.user_id === currentUser.uid ? ' (you)' : ''}</span>
+            ${p.user_id === currentUser.uid
+              ? `<button type="button" class="p-name-self" data-open-alltime>${escapeHtml(characterName)} (you)</button>`
+              : `<span>${escapeHtml(characterName)}</span>`}
             <span class="p-health-num">${p.is_alive ? `${p.health}/${maxHealth}` : 'Dead'}</span>
           </div>
           <div class="p-health-track">
@@ -1398,6 +1463,12 @@ function renderGame() {
       button.addEventListener('click', () => {
         sounds.playClick();
         allocateStatPoint(button.dataset.allocateStat);
+      });
+    });
+    list.querySelectorAll('[data-open-alltime]').forEach(button => {
+      button.addEventListener('click', () => {
+        sounds.playClick();
+        openAllTimeStats();
       });
     });
   }

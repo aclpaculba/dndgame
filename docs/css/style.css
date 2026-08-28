@@ -424,6 +424,18 @@ h1, h2, h3, h4, .topbar-brand, .boss-name {
   font-size: 0.6rem;
 }
 
+.user-pill-btn {
+  cursor: pointer;
+  font-family: var(--font-family);
+}
+
+.user-pill-btn:hover,
+.user-pill-btn:focus-visible {
+  border-color: #d18a4b;
+  color: #f0c477;
+  outline: none;
+}
+
 /* ---------- Character Screen ---------- */
 .char-main {
   padding: var(--space-xl) var(--space-lg);
@@ -873,6 +885,26 @@ h1, h2, h3, h4, .topbar-brand, .boss-name {
   align-items: center;
   font-weight: 500;
   font-size: 0.9rem;
+}
+
+.p-name-self {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-weight: inherit;
+  font-size: inherit;
+  font-family: var(--font-family);
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--text-muted);
+}
+
+.p-name-self:hover,
+.p-name-self:focus-visible {
+  color: #f0c477;
+  text-decoration-color: #f0c477;
+  outline: none;
 }
 
 .p-health-track {

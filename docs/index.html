@@ -237,6 +237,17 @@
       </div>
     </div>
   </dialog>
+  <dialog id="modal-alltime-stats" class="modal" role="dialog" aria-labelledby="alltime-title">
+    <div class="modal-card glass-card" style="max-width: 460px;">
+      <div style="display: flex; justify-content: space-between; align-items: start;">
+        <h3 id="alltime-title">All-Time Stats</h3>
+        <button id="btn-alltime-close" class="btn btn-ghost" style="font-size: 1.5rem; padding: 0 8px;">×</button>
+      </div>
+      <div id="alltime-content">
+        <!-- Dynamically populated -->
+      </div>
+    </div>
+  </dialog>
 
   <!-- ================= LOBBY SCREEN ================= -->
   <section id="screen-lobby" class="screen" role="main" aria-label="Lobby">
@@ -245,7 +256,7 @@
         <span>Stackfall</span>
       </div>
       <div class="topbar-actions">
-        <span id="lobby-username" class="user-pill"></span>
+        <button id="lobby-username" class="user-pill user-pill-btn" type="button" title="View your all-time stats"></button>
         <button id="btn-logout" class="btn btn-ghost btn-sm">Sign out</button>
       </div>
     </header>
