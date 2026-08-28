@@ -74,6 +74,9 @@ let characters = [];
 let latestCharactersById = new Map();
 let autoResetTimer = null;
 let pendingTableStartSessionId = null;
+let isGeneratingStory = false;  
+let refreshTimeout = null;      
+let lastStoryVersion = '';      
 
 const STORAGE_KEY = 'lastEmberUser';
 const CHAR_STORAGE_KEY = 'lastEmberCharacter';
@@ -868,6 +871,15 @@ async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true 
 }
 
 async function seedLocalOpening(sessionId) {
+  // Check if story already exists first
+  const { data: session } = await sb.from('sessions').select('story_narrative, story_choices').eq('id', sessionId).single();
+  
+  // Only seed if empty or stuck
+  if (session && session.story_narrative && session.story_narrative !== 'The story is being written…' && session.story_choices?.length > 0) {
+    console.log('Story already exists, skipping local seed');
+    return;
+  }
+  
   const { error } = await sb.from('sessions').update({
     status: 'active',
     current_turn_index: 0,
@@ -1030,21 +1042,39 @@ $('modal-alltime-stats')?.addEventListener('click', (e) => {
 
 // ---------- Game Screen ----------
 async function refreshGameState() {
-  const [{ data: session }, { data: players }] = await Promise.all([
-    sb.from('sessions').select('*').eq('id', currentSessionId).single(),
-    sb.from('players').select('*').eq('session_id', currentSessionId).order('position_in_turn_order'),
-  ]);
-  if (!session) return;
-  
-  latestSession = session;
-  latestPlayers = players || [];
-  latestCharactersById = new Map();
-  renderGame();
-  
-  if (latestSession.status === 'completed') {
-    sounds.playWin();
-    showEndScreen(latestSession);
+  // Debounce: clear any pending refresh
+  if (refreshTimeout) {
+    clearTimeout(refreshTimeout);
+    refreshTimeout = null;
   }
+  
+  refreshTimeout = setTimeout(async () => {
+    refreshTimeout = null;
+    
+    const [{ data: session }, { data: players }] = await Promise.all([
+      sb.from('sessions').select('*').eq('id', currentSessionId).single(),
+      sb.from('players').select('*').eq('session_id', currentSessionId).order('position_in_turn_order'),
+    ]);
+    if (!session) return;
+    
+    // Check if story actually changed
+    const storyHash = (session.story_narrative || '') + (session.story_choices || []).join(',');
+    if (storyHash === lastStoryVersion && session.status !== 'completed') {
+      // No change, skip re-render
+      return;
+    }
+    lastStoryVersion = storyHash;
+    
+    latestSession = session;
+    latestPlayers = players || [];
+    latestCharactersById = new Map();
+    renderGame();
+    
+    if (latestSession.status === 'completed') {
+      sounds.playWin();
+      showEndScreen(latestSession);
+    }
+  }, 100);
 }
 
 function renderPlayerStats(character) {
@@ -1299,22 +1329,33 @@ function enterGame(sessionId) {
 
 // ---------- Retry Kickoff ----------
 async function retryKickoff() {
+  if (isGeneratingStory) {
+    toast('Story is already being generated...', 2000);
+    return;
+  }
+  
   const btn = $('btn-start-tale');
   if (btn) {
     btn.disabled = true;
     btn.textContent = 'Writing…';
   }
   
-  const { data, error } = await sb.functions.invoke('generate-story', {
-    body: { sessionId: currentSessionId, userId: currentUser.uid, kickoff: true },
-  });
+  isGeneratingStory = true;
   
-  if (error) {
-    const message = await extractFunctionError(error, data);
-    console.error('Retry kickoff failed:', message, error);
-    await seedLocalOpening(currentSessionId);
-    await refreshGameState();
-    toast('Story engine unavailable. Local opening loaded.', 5000, 'error');
+  try {
+    const { data, error } = await sb.functions.invoke('generate-story', {
+      body: { sessionId: currentSessionId, userId: currentUser.uid, kickoff: true },
+    });
+    
+    if (error) {
+      const message = await extractFunctionError(error, data);
+      console.error('Retry kickoff failed:', message, error);
+      await seedLocalOpening(currentSessionId);
+      await refreshGameState();
+      toast('Story engine unavailable. Local opening loaded.', 5000, 'error');
+    }
+  } finally {
+    isGeneratingStory = false;
     if (btn) {
       btn.disabled = false;
       btn.textContent = 'Start the tale';
@@ -1537,8 +1578,9 @@ function updateLastAction() {
   const choices = latestSession.story_choices || [];
   const narrative = (latestSession.story_narrative || '').trim();
   const isStuck = latestSession.status === 'active' &&
-    !choices.length &&
-    (narrative === 'The story is being written…' || narrative.startsWith('A new tale begins'));
+  !choices.length &&
+  (narrative === 'The story is being written…' || narrative.startsWith('A new tale begins')) &&
+  !isGeneratingStory;
 
   if (turnEl) {
     if (latestSession.status === 'completed') {
@@ -1666,6 +1708,11 @@ function updateLastAction() {
 
 // ---------- Use Item ----------
 async function useItem(itemId) {
+  if (isGeneratingStory) {
+    toast('Story is already being generated...', 2000);
+    return;
+  }
+  
   const choicesEl = $('choices');
   const inventoryList = $('inventory-list');
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
@@ -1673,33 +1720,50 @@ async function useItem(itemId) {
 
   const statusEl = $('story-status');
   if (statusEl) statusEl.textContent = 'Using item…';
+  
+  isGeneratingStory = true;
 
-  const { data, error } = await sb.functions.invoke('generate-story', {
-    body: { sessionId: currentSessionId, userId: currentUser.uid, itemId },
-  });
+  try {
+    const { data, error } = await sb.functions.invoke('generate-story', {
+      body: { sessionId: currentSessionId, userId: currentUser.uid, itemId },
+    });
 
-  if (error) {
-    const message = await extractFunctionError(error, data);
-    console.error('useItem failed:', message, error);
-    if (statusEl) statusEl.textContent = 'Could not use that item — please try again.';
-    toast('Item use failed: ' + message, 4000, 'error');
+    if (error) {
+      const message = await extractFunctionError(error, data);
+      console.error('useItem failed:', message, error);
+      if (statusEl) statusEl.textContent = 'Could not use that item — please try again.';
+      toast('Item use failed: ' + message, 4000, 'error');
+    }
+  } finally {
+    isGeneratingStory = false;
   }
 }
 
 // ---------- Submit Choice (turn-based — only the acting player calls this) ----------
 async function submitChoice(choiceIndex) {
+  if (isGeneratingStory) {
+    toast('Story is already being generated...', 2000);
+    return;
+  }
+  
   const choicesEl = $('choices');
   const statusEl = $('story-status');
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
   if (statusEl) statusEl.textContent = 'The storyteller is weaving…';
-
-  const { data, error } = await sb.functions.invoke('generate-story', {
-    body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
-  });
-  if (error) {
-    console.error('submitChoice failed:', error);
-    if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
-    toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+  
+  isGeneratingStory = true;
+  
+  try {
+    const { data, error } = await sb.functions.invoke('generate-story', {
+      body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
+    });
+    if (error) {
+      console.error('submitChoice failed:', error);
+      if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
+      toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+    }
+  } finally {
+    isGeneratingStory = false;
   }
 }
 
@@ -1719,14 +1783,17 @@ async function startVote() {
 }
 
 async function castVote(choiceIndex) {
+  if (isGeneratingStory) {
+    toast('Story is already being generated...', 2000);
+    return;
+  }
+  
   const current = (latestSession.vote_state && latestSession.vote_state.active)
     ? latestSession.vote_state
     : { active: true, votes: {} };
   const votes = { ...current.votes, [currentUser.uid]: choiceIndex };
   const alivePlayers = latestPlayers.filter(p => p.is_alive);
 
-  // Show the updated count immediately instead of waiting on the
-  // realtime round-trip back from the database.
   latestSession.vote_state = { active: true, votes };
   renderGame();
 
@@ -1741,12 +1808,6 @@ async function castVote(choiceIndex) {
 
   if (Object.keys(votes).length < alivePlayers.length) return;
 
-  // Everyone alive has voted — tally and submit the majority choice.
-  // (If two people happen to cast the very last vote at the exact
-  // same instant, both browsers could reach this point together and
-  // both call generate-story — a rare, low-stakes race that existed
-  // in the original voting code too; not worth a distributed lock for
-  // a casual game.)
   const tally = {};
   Object.values(votes).forEach(v => { tally[v] = (tally[v] || 0) + 1; });
   const winner = Number(Object.keys(tally).reduce((best, key) =>
@@ -1756,14 +1817,20 @@ async function castVote(choiceIndex) {
   const statusEl = $('story-status');
   if (statusEl) statusEl.textContent = 'The party has agreed. The storyteller is weaving…';
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
+  
+  isGeneratingStory = true;
 
-  const { data, error } = await sb.functions.invoke('generate-story', {
-    body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex: winner },
-  });
-  if (error) {
-    console.error('submitChoice (vote) failed:', error);
-    if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
-    toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+  try {
+    const { data, error } = await sb.functions.invoke('generate-story', {
+      body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex: winner },
+    });
+    if (error) {
+      console.error('submitChoice (vote) failed:', error);
+      if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
+      toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+    }
+  } finally {
+    isGeneratingStory = false;
   }
 }
 
