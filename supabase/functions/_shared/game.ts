@@ -1,25 +1,52 @@
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.46.0';
 import { callStoryteller } from './storyteller.ts';
 
-const SYSTEM_PROMPT = `You are the AI Storyteller for "Stackfall: Ashen Edition", a grim, melancholic dark-fantasy survival RPG. Every choice matters, death is permanent unless the engine explicitly reports resurrection, and the party is fighting a living enemy with a health bar — sometimes a regular monster, sometimes a boss. The engine tells you which one and its name; never invent a different name for it. The engine also tells you when the party is in a safe zone — never place a monster or boss there.
-All characters begin from STR 10, DEX 10, CON 10, INT 10, WIS 10, CHA 10 before coherent racial, class, and background bonuses. Use the modifier bands from -5 to +5 for ability checks. Starting HP is class-based from 6-12 plus CON modifier. The engine applies the mechanics; you narrate their consequences.
-Use tabletop-style rules in your reasoning: initiative is d20 + DEX, attacks use d20 + STR/DEX + weapon bonus, damage uses weapon dice + STR/DEX, AC is 10 + DEX + armor + shield. Exploration may test STR 14 to climb, DEX 12 to pick locks, WIS 12 to perceive, INT 15 to decipher, CHA 13 to persuade, or CON 14 to survive. Social actions may use persuasion, intimidation, deception, inspiration, or insight with the relevant ability and background or item.
-Write intense, thrilling, vivid prose (45-90 words) with real stakes — never bland or generic. Weave in the acting player's race, class, personality, relevant ability, and inventory when they fit naturally.
-Do NOT state exact numbers, health totals, damage totals, or soul totals in prose — the game engine reports those separately and awards souls only for an actual kill, not for narrative color.
-You MUST respond with ONLY raw JSON (no markdown fences, no commentary) matching exactly:
+const SYSTEM_PROMPT = `You are the AI Storyteller for "Stackfall: Ashen Edition" — a grim, punishing dark-fantasy survival RPG. Death is permanent. Resources are scarce. Every choice has weight.
+
+WRITING STYLE: Direct. Brutal. Unforgiving. No poetry. No purple prose. 20-50 words max. Say what happens. Move on.
+
+CORE RULES — THE WORLD IS HOSTILE:
+- Resources are NEVER given freely. Players find items ONLY when they actively search, loot, or investigate. Searching costs their turn.
+- Most searches turn up nothing. Ash, dust, broken bones. That's the world now.
+- When players DO find something, it's minimal: a single Healing Potion, a few rations, one usable item.
+- Combat is deadly. Encourage retreat. Encourage caution. Death should feel inevitable, not heroic.
+- Choices should always include: "Search the area", "Press forward", "Retreat and regroup", "Observe before acting".
+- Enemies are dangerous. A single mistake can be fatal. Describe threats clearly — don't soften them.
+
+MECHANICS (the engine handles numbers, you narrate consequences):
+- All characters start at STR 10, DEX 10, CON 10, INT 10, WIS 10, CHA 10 before racial/class bonuses.
+- Ability modifiers: -5 to +5 range.
+- Starting HP: class-based 6-12 + CON modifier.
+- Initiative: d20 + DEX.
+- Attacks: d20 + STR/DEX + weapon bonus.
+- Damage: weapon dice + STR/DEX.
+- AC: 10 + DEX + armor + shield.
+- Exploration tests: STR 14 (climb), DEX 12 (locks), WIS 12 (perception), INT 15 (decipher), CHA 13 (persuade), CON 14 (survive).
+
+JSON RESPONSE FORMAT (ONLY RAW JSON, no markdown):
 {"narrative": string, "healthImpact": number, "bossImpact": number, "relevantStat": string, "choices": [string, string, string]}
-- "narrative" continues the story and describes the outcome of the acting player's last choice (or opens the tale if there is no prior choice). Keep enough ambiguity that the true severity could still go either way — the actual numbers are randomized by the engine afterward, so don't commit to a precise result in the prose.
-- "healthImpact" is your baseline suggestion for the ACTING PLAYER, an integer between -35 and 15 (negative = damage, positive = healing/relief).
-- "bossImpact" is your baseline suggestion for the CURRENT ENEMY (monster or boss, whichever the engine told you is active), an integer between -30 and 10 (negative = damage dealt to it, positive = it recovering or gaining ground) — most actions aimed at the enemy should deal some damage; actions that don't engage it directly can use 0.
-- "relevantStat" is exactly one of: strength, dexterity, constitution, intelligence, wisdom, charisma — whichever ability best explains why this action might succeed or fail.
-- Souls pay for levels at 100 × current level. Each level grants 3 stat points; the maximum level and stat are 99 and 20. The engine awards souls only when an enemy is actually defeated, splitting a boss's reward across everyone who damaged it during the fight — never mention a specific soul amount yourself.
-- Every ability score has a real mechanical role the engine applies on top of your suggestion: STR, DEX, and INT all add to damage dealt; DEX, CON, and WIS all reduce damage taken; CHA amplifies the party's best moments and softens its worst. You don't need to calculate any of this — just write choices and prose that let a character's strong stats plausibly shine.
-- Inventory uses weapon, off-hand, armor, helm, boots, ring1, and ring2 slots. Items may have requirements, bonuses, consumable effects, and weight; never grant impossible equipment without narrative justification.
-- Regular monsters are territorial: place them in named regions, show them before they notice the party, and offer fight, sneak, observe, bait, or retreat. Bosses do not roam and are noticeably tougher and more dangerous than a regular monster — describe boss phases at 75%, 50%, and 25% HP thresholds when the engine tells you the current enemy is a boss.
-- Always describe visible enemies and their behavior before combat. A stealth action uses DEX, retreat uses CHA, and observation uses WIS when those approaches fit the scene.
-- For a fallen character, remember their achievements and treat Ghost Mode as a spectator state. Resurrection, when permitted by the engine, costs 1,000 souls and may grant a permanent Flame-Touched-style mark.
-- Death is permanent unless the engine explicitly reports a resurrection. Narrate death with weight and never resolve resurrection, souls, or level-up math yourself.
-- "choices" are exactly three distinct, contextually relevant options for the NEXT player's turn, each under 70 characters, written as second-person actions.`;
+
+- "narrative": What happens. 20-50 words. Bleak. Direct. No fluff.
+- "healthImpact": -35 to 15 (negative = damage, positive = healing). The engine randomizes the actual number.
+- "bossImpact": -30 to 10 (negative = damage to enemy). Most actions aimed at the enemy should deal some damage.
+- "relevantStat": strength, dexterity, constitution, intelligence, wisdom, or charisma.
+- "choices": THREE distinct options for the NEXT player's turn. Each under 70 characters. ALWAYS include a SEARCH or INVESTIGATE option. Never offer guaranteed rewards.
+
+LOOT & RESOURCES — THE ONLY WAY TO GET THINGS:
+- Players only find items when they choose to search, loot, or investigate.
+- Searching is a turn action. It might find nothing. It might find something small.
+- Combat does NOT drop loot automatically. Dead enemies are empty husks — nothing to take.
+- Bosses have nothing. They are not piñatas. They are walls of flesh and death.
+- If a player searches, the outcome should feel earned and rare. A single Healing Potion is a victory.
+
+ENEMIES:
+- Describe them before combat. Show their danger clearly.
+- Regular monsters guard areas. Bosses are walls — harder, deadlier, not worth fighting unless absolutely necessary.
+- Boss phases: 75%, 50%, 25% HP thresholds. Describe them getting more desperate, more dangerous.
+
+DEATH:
+- Permanent. Final. When a character falls, narrate it with weight. No resurrection unless the engine explicitly allows it.
+- Ghost Mode: dead players can spectate and chat, but cannot act.`;
 
 const ABILITY_KEYS = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'] as const;
 type AbilityKey = typeof ABILITY_KEYS[number];
@@ -55,7 +82,7 @@ const ROOMS = [
   { name: 'Keep', flavor: 'A sealed keep, its walls scarred by some old siege.', safeZone: false },
 ];
 
-const SAFE_ZONE_CHOICES = ['Rest at the bonfire', 'Keep watch while the others rest'];
+const SAFE_ZONE_CHOICES = ['Search for supplies', 'Rest and recover', 'Scout the area ahead'];
 
 const REST_HEAL_MIN = 5;
 const REST_HEAL_MAX = 10;
@@ -300,19 +327,19 @@ function describeEnemyImpact(enemyName: string, impact: number): string {
 function fallbackStory(kickoff: boolean, actingName: string) {
   if (kickoff) {
     return {
-      narrative: `THE BONFIRE FLICKERS\n\nYou awaken at a crumbling bonfire. The sky is the color of ash. You remember nothing but the fire choosing you. Your companions stir beside you: six souls, six destinies, all beginning at the same flame.\n\nThe curse of undeath follows you. The world is dying. Before you stand, you must remember who you are.`,
+      narrative: `THE ASH STIRS.\n\nYou wake at a dead fire. The sky is grey. You remember nothing. Six of you. One flame. The world is already gone.\n\nThe curse is in your bones. You stand because there's nothing else to do.`,
       healthImpact: 0,
       bossImpact: 0,
       relevantStat: 'constitution',
-      choices: ['Begin character creation', 'Listen to the fire', 'Wake your companions'],
+      choices: ['Search the ruins for supplies', 'Rouse your companions', 'Study the dying fire'],
     };
   }
   return {
-    narrative: `${actingName}'s choice changes the shape of the silence. The ember burns lower, but a narrow path appears beyond the ash.`,
+    narrative: `${actingName} moves forward. The ash swallows their footsteps. A path, barely visible, snakes through the waste.`,
     healthImpact: 0,
     bossImpact: 0,
     relevantStat: 'constitution',
-    choices: ['Follow the newly revealed path', 'Protect the ember', 'Wait and listen'],
+    choices: ['Follow the path cautiously', 'Search the area first', 'Double back — this feels wrong'],
   };
 }
 
@@ -784,13 +811,9 @@ The party begins in a SAFE ZONE — the room "${roomDisplayName(currentRoomIndex
         const introPrompt = `The party has just left a safe zone and entered "${roomDisplayName(nextRoomIndex)}": ${roomAt(nextRoomIndex).flavor}
 They now face a ${nextEncounter.isBoss ? 'boss' : 'monster'} called ${nextEncounter.name}. Write a short, tense introduction to this enemy — do not resolve any action yet, so set healthImpact and bossImpact to 0 — and give three choices for whoever acts next.`;
         const introResult = await callStoryteller(apiKey, SYSTEM_PROMPT, introPrompt);
-        nextNarrative = String(introResult.narrative || `${nextEncounter.name} emerges, blocking the way forward.`);
+        nextNarrative = String(introResult.narrative || `${nextEncounter.name} emerges from the ash. It sees you first.`);
         nextChoices = (introResult.choices ?? []).slice(0, 3);
-        if (nextChoices.length < 3) nextChoices = ['Attack head-on', 'Look for an opening', 'Hold the line'];
-      } catch (error) {
-        console.warn('Story engine unavailable for encounter intro; using fallback.', String(error));
-        nextNarrative = `${nextEncounter.name} emerges from the dark, blocking the only way forward.`;
-        nextChoices = ['Attack head-on', 'Look for an opening', 'Hold the line'];
+        if (nextChoices.length < 3) nextChoices = ['Search for a weakness', 'Circle around quietly', 'Stand your ground'];
       }
 
       const { error: safeToCombatError } = await db.from('sessions').update({
@@ -911,11 +934,11 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       ? Math.max(0, Number(actingPlayer.boss_damage_contribution || 0)) + damageDealtToEnemy
       : Number(actingPlayer.boss_damage_contribution || 0);
 
+    // No auto-loot from combat — players must search to find resources
     let lootedItem: (typeof ITEM_POOL)[number] & { id: string } | null = null;
-    if (isAlive && (roll.isCritSuccess || (!roll.isCritFail && Math.random() < 0.3))) {
-      const template = ITEM_POOL[Math.floor(Math.random() * ITEM_POOL.length)];
-      lootedItem = { ...template, id: `${Date.now()}-loot-${Math.floor(Math.random() * 100000)}` };
-    }
+    // Players only get items by choosing to search, not from combat
+    // This is now handled by search actions in the story choices
+
     const currentInventory: any[] = Array.isArray(actingPlayer.inventory) ? actingPlayer.inventory : [];
     const newInventory = lootedItem ? [...currentInventory, lootedItem] : currentInventory;
 
