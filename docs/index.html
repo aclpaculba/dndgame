@@ -345,6 +345,21 @@
             <span id="map-location">Fireshrine</span>
             <button id="map-toggle" class="map-toggle" type="button" aria-expanded="false">View map</button>
           </div>
+          <!-- LAST ACTION + REPLAY -->
+          <div id="last-action-container" class="last-action-container hidden">
+            <div class="last-action-header">
+              <span class="last-action-player"></span>
+              <span class="last-action-timestamp"></span>
+            </div>
+            <div class="last-action-body">
+              <span class="last-action-choice"></span>
+              <span class="last-action-roll"></span>
+            </div>
+            <div class="last-action-outcome"></div>
+            <button id="btn-replay-last" class="btn btn-secondary btn-sm replay-btn">
+              <span aria-hidden="true">↻</span> Replay
+            </button>
+          </div>
           <div id="mini-map" class="mini-map hidden" role="img" aria-label="A small map of the current region"></div>
           <div id="map-popover" class="map-popover hidden" role="dialog" aria-live="polite">
             <button id="map-popover-close" class="map-popover-close" type="button" aria-label="Close map details">×</button>

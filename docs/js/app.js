@@ -1327,6 +1327,7 @@ function renderGame() {
   if (!latestSession) return;
   renderAshenMap();
   renderHallOfDead();
+  updateLastAction();
 
   // Rooms 0 (Ash) and 3 (Shrine) in the cycle are safe zones — kept
   // in sync with the safeZone flags on ROOMS in
@@ -1373,7 +1374,65 @@ function renderGame() {
       ? 'var(--text-muted)'
       : (bossPct <= 25 ? 'linear-gradient(135deg, #636e72, #2d3436)' : 'linear-gradient(135deg, #e17055, #d63031)');
   }
-
+// ---------- Last Action + Replay ----------
+function updateLastAction() {
+  const container = $('last-action-container');
+  if (!container || !latestSession) return;
+  
+  const history = latestSession.story_history || [];
+  if (history.length === 0) {
+    container.classList.add('hidden');
+    return;
+  }
+  
+  const last = history[history.length - 1];
+  container.classList.remove('hidden', 'replaying');
+  
+  const playerEl = container.querySelector('.last-action-player');
+  const timestampEl = container.querySelector('.last-action-timestamp');
+  const choiceEl = container.querySelector('.last-action-choice');
+  const rollEl = container.querySelector('.last-action-roll');
+  const outcomeEl = container.querySelector('.last-action-outcome');
+  
+  if (playerEl) playerEl.textContent = last.player || 'Someone';
+  
+  if (timestampEl) {
+    const now = Date.now();
+    const then = last.timestamp || now;
+    const diff = Math.floor((now - then) / 1000);
+    if (diff < 60) timestampEl.textContent = 'just now';
+    else if (diff < 3600) timestampEl.textContent = `${Math.floor(diff / 60)}m ago`;
+    else timestampEl.textContent = `${Math.floor(diff / 3600)}h ago`;
+  }
+  
+  if (choiceEl) {
+    choiceEl.textContent = last.choice || 'acted';
+  }
+  
+  if (rollEl) {
+    if (last.roll) {
+      rollEl.textContent = `🎲 ${last.roll}${last.rollLabel ? ` · ${last.rollLabel}` : ''}`;
+      rollEl.style.display = 'inline-block';
+    } else {
+      rollEl.style.display = 'none';
+    }
+  }
+  
+  if (outcomeEl) {
+    let outcome = last.outcome || '';
+    if (last.impact !== undefined && last.impact !== null) {
+      const impactText = last.impact < 0 ? `💔 ${Math.abs(last.impact)} HP lost` : 
+                         last.impact > 0 ? `💚 +${last.impact} HP` : '';
+      if (impactText) {
+        outcome = outcome + (outcome ? ' — ' : '') + impactText;
+      }
+    }
+    if (last.loot) {
+      outcome = outcome + (outcome ? ' — ' : '') + `📦 Found: ${last.loot}`;
+    }
+    outcomeEl.textContent = outcome || 'The action was taken.';
+  }
+}
   // Player List
   const list = $('player-list');
   if (list) {
@@ -1799,4 +1858,34 @@ document.addEventListener('keydown', (e) => {
       choiceBtn.click();
     }
   }
+});
+
+// Replay last action
+$('btn-replay-last')?.addEventListener('click', () => {
+  const container = $('last-action-container');
+  if (!container) return;
+  
+  container.classList.remove('replaying');
+  void container.offsetWidth;
+  container.classList.add('replaying');
+  container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  
+  sounds.playClick();
+  
+  const storyText = $('story-text');
+  if (storyText) {
+    storyText.style.transition = 'background 0.3s ease';
+    storyText.style.background = 'rgba(209, 138, 75, 0.15)';
+    setTimeout(() => {
+      storyText.style.background = 'rgba(255, 255, 255, 0.02)';
+    }, 800);
+  }
+  
+  toast('Replaying last action...', 1500);
+});
+
+// Click container to replay
+$('last-action-container')?.addEventListener('click', (e) => {
+  if (e.target.closest('.replay-btn')) return;
+  $('btn-replay-last')?.click();
 });

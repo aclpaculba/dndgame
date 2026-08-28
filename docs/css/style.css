@@ -1848,3 +1848,130 @@ body.theme-plain *::after {
   padding-top: var(--space-xs);
   border-top: 1px solid var(--glass-border);
 }
+/* ---------- Last Action + Replay ---------- */
+.last-action-container {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-base);
+  position: relative;
+}
+
+.last-action-container:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(213, 180, 115, 0.3);
+}
+
+.last-action-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: 4px;
+}
+
+.last-action-player {
+  font-weight: 700;
+  color: #f0c477;
+  font-size: 0.9rem;
+}
+
+.last-action-player::before {
+  content: '⚔️ ';
+}
+
+.last-action-timestamp {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.last-action-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.last-action-choice {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  font-style: italic;
+}
+
+.last-action-choice::before {
+  content: '"';
+}
+
+.last-action-choice::after {
+  content: '"';
+}
+
+.last-action-roll {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--health-mid);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 10px;
+  border-radius: var(--radius-full);
+}
+
+.last-action-outcome {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  padding: var(--space-xs) 0;
+  border-top: 1px solid var(--glass-border);
+  margin-top: 4px;
+  padding-top: 8px;
+  line-height: 1.5;
+}
+
+.replay-btn {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  padding: 4px 12px;
+  font-size: 0.7rem;
+  opacity: 0.5;
+  transition: all var(--transition-base);
+  border: 1px solid transparent;
+}
+
+.replay-btn:hover {
+  opacity: 1;
+  border-color: var(--glass-border);
+}
+
+.replay-btn:active {
+  transform: scale(0.95);
+}
+
+.last-action-container.replaying {
+  animation: replayFlash 1.2s ease;
+  border-color: #d18a4b;
+  box-shadow: 0 0 20px rgba(209, 138, 75, 0.15);
+}
+
+@keyframes replayFlash {
+  0% { background: rgba(209, 138, 75, 0.1); }
+  50% { background: rgba(209, 138, 75, 0.25); }
+  100% { background: rgba(255, 255, 255, 0.03); }
+}
+
+@media (max-width: 480px) {
+  .last-action-container {
+    padding: var(--space-sm);
+  }
+  
+  .replay-btn {
+    position: static;
+    margin-top: var(--space-xs);
+    width: 100%;
+  }
+  
+  .last-action-header {
+    flex-wrap: wrap;
+  }
+}
