@@ -811,9 +811,13 @@ The party begins in a SAFE ZONE — the room "${roomDisplayName(currentRoomIndex
         const introPrompt = `The party has just left a safe zone and entered "${roomDisplayName(nextRoomIndex)}": ${roomAt(nextRoomIndex).flavor}
 They now face a ${nextEncounter.isBoss ? 'boss' : 'monster'} called ${nextEncounter.name}. Write a short, tense introduction to this enemy — do not resolve any action yet, so set healthImpact and bossImpact to 0 — and give three choices for whoever acts next.`;
         const introResult = await callStoryteller(apiKey, SYSTEM_PROMPT, introPrompt);
-        nextNarrative = String(introResult.narrative || `${nextEncounter.name} emerges from the ash. It sees you first.`);
+        nextNarrative = String(introResult.narrative || `${nextEncounter.name} emerges, blocking the way forward.`);
         nextChoices = (introResult.choices ?? []).slice(0, 3);
         if (nextChoices.length < 3) nextChoices = ['Search for a weakness', 'Circle around quietly', 'Stand your ground'];
+      } catch (error) {
+        console.warn('Story engine unavailable for encounter intro; using fallback.', String(error));
+        nextNarrative = `${nextEncounter.name} emerges from the ash. It sees you first.`;
+        nextChoices = ['Search for a weakness', 'Circle around quietly', 'Stand your ground'];
       }
 
       const { error: safeToCombatError } = await db.from('sessions').update({
