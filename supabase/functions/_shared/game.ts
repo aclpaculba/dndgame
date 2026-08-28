@@ -326,7 +326,6 @@ export async function generateOne(
       }
     }
 
-    const newHealth = Math.max(0, Math.min(100, actingPlayer.health + playerHealthDelta));
     const maxHealth = Math.max(1, Number(actingPlayer.max_health || 100));
     const newHealth = Math.max(0, Math.min(maxHealth, actingPlayer.health + playerHealthDelta));
     const isAlive = newHealth > 0;
