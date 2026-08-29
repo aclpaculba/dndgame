@@ -1424,19 +1424,28 @@ function renderFallbackPixelScene(canvas, sceneData) {
   const ctx = canvas.getContext('2d');
   const w = canvas.width;
   const h = canvas.height;
-  const p = 8;
+  const p = 4; // Smaller pixel size = more detail!
   
   ctx.imageSmoothingEnabled = false;
   
+  // Clear
   ctx.fillStyle = '#0a0806';
   ctx.fillRect(0, 0, w, h);
   
+  // ----- SKY -----
   const colors = {
     dark: ['#1a1010', '#0a0806'],
     fire: ['#2a1a0a', '#0a0806'],
     combat: ['#1a0a0a', '#0a0604'],
+    neutral: ['#1a1814', '#0a0806'],
+    ash: ['#2a2820', '#1a1814'],
+    gate: ['#1a1410', '#0a0806'],
+    crypt: ['#0a0808', '#050303'],
+    shrine: ['#2a1a0a', '#0a0806'],
+    forest: ['#1a1a10', '#0a0a06'],
+    tower: ['#1a0a0a', '#0a0505']
   };
-  const sky = colors[sceneData.mood] || colors.dark;
+  const sky = colors[sceneData.location] || colors.neutral;
   for (let y = 0; y < h * 0.6; y += p) {
     const t = y / (h * 0.6);
     const r = parseInt(sky[0].slice(1,3), 16) + (parseInt(sky[1].slice(1,3), 16) - parseInt(sky[0].slice(1,3), 16)) * t;
@@ -1446,53 +1455,330 @@ function renderFallbackPixelScene(canvas, sceneData) {
     ctx.fillRect(0, y, w, p);
   }
   
-  const groundY = h * 0.65;
-  ctx.fillStyle = '#1a1510';
-  ctx.fillRect(0, groundY, w, h - groundY);
-  
-  const cx = w / 2;
-  const cy = groundY + 20;
-  ctx.fillStyle = '#3a2a1a';
-  ctx.fillRect(cx - 20, cy - 4, 40, 12);
-  ctx.fillStyle = '#4a3a2a';
-  ctx.fillRect(cx - 24, cy, 48, 6);
-  
-  const flicker = Math.random() * 0.3 + 0.7;
-  ctx.fillStyle = `rgba(255, 180, 50, ${0.6 * flicker})`;
-  ctx.fillRect(cx - 12, cy - 30 * flicker, 24, 24);
-  ctx.fillStyle = `rgba(255, 100, 20, ${0.4 * flicker})`;
-  ctx.fillRect(cx - 6, cy - 40 * flicker, 12, 20);
-  
-  const px = w * 0.35;
-  const py = groundY - 10;
-  ctx.fillStyle = '#f0c477';
-  ctx.fillRect(px - 6, py - 24, 12, 24);
-  ctx.fillRect(px - 8, py - 32, 16, 10);
-  ctx.fillRect(px - 14, py - 16, 6, 6);
-  ctx.fillRect(px + 8, py - 16, 6, 6);
-  
-  const tx = w * 0.65;
-  const ty = groundY - 10;
-  ctx.fillStyle = '#e17055';
-  ctx.fillRect(tx - 8, ty - 28, 16, 28);
-  ctx.fillRect(tx - 10, ty - 38, 20, 12);
-  
-  ctx.fillStyle = '#8a7a6a';
-  ctx.fillRect(tx + 14, ty - 28, 4, 24);
-  
-  if (sceneData.action === 'attack' || sceneData.action === 'hit') {
-    for (let i = 0; i < 15; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = Math.random() * 30 + 5;
-      const size = Math.random() * 4 + 1;
-      ctx.fillStyle = `rgba(255, 200, 100, ${Math.random() * 0.8 + 0.2})`;
-      ctx.fillRect(
-        tx + Math.cos(angle) * dist,
-        ty - 20 + Math.sin(angle) * dist,
-        size, size
-      );
-    }
+  // ----- STARS / EMBERS -----
+  const numParticles = sceneData.location === 'ash' ? 15 : 8;
+  for (let i = 0; i < numParticles; i++) {
+    const x = Math.random() * w;
+    const y = Math.random() * (h * 0.4);
+    const size = Math.random() * 2 + 1;
+    const alpha = Math.random() * 0.5 + 0.2;
+    ctx.fillStyle = `rgba(255, 200, 100, ${alpha})`;
+    ctx.fillRect(x, y, size, size);
   }
+  
+  // ----- MOON / CELESTIAL -----
+  if (sceneData.location !== 'crypt' && sceneData.location !== 'tower') {
+    const moonX = w * 0.8;
+    const moonY = h * 0.15;
+    ctx.fillStyle = 'rgba(180, 170, 150, 0.15)';
+    for (let r = 20; r > 0; r -= 2) {
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(200, 190, 170, 0.2)';
+    ctx.beginPath();
+    ctx.arc(moonX, moonY, 16, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  
+  // ----- GROUND -----
+  const groundY = h * 0.62;
+  const groundColors = ['#1a1510', '#1c1712', '#18130e', '#1e1914'];
+  for (let y = groundY; y < h; y += p) {
+    const colorIndex = Math.floor(((y - groundY) / (h - groundY)) * groundColors.length);
+    ctx.fillStyle = groundColors[Math.min(colorIndex, groundColors.length - 1)];
+    ctx.fillRect(0, y, w, p);
+  }
+  
+  // ----- GROUND TEXTURE -----
+  for (let i = 0; i < 80; i++) {
+    const x = Math.random() * w;
+    const y = groundY + Math.random() * (h - groundY);
+    const size = Math.random() * 3 + 1;
+    const shade = Math.random() > 0.5 ? '#2a2018' : '#0a0806';
+    ctx.fillStyle = shade;
+    ctx.fillRect(x, y, size, size);
+  }
+  
+  // ----- BACKGROUND ENVIRONMENT -----
+  drawEnvironment(ctx, w, h, groundY, p, sceneData);
+  
+  // ----- CHARACTERS -----
+  drawCharacter(ctx, w * 0.35, groundY - 10, p, '#f0c477', 'player', sceneData);
+  
+  if (sceneData.action === 'attack' || sceneData.action === 'hit' || sceneData.target) {
+    drawCharacter(ctx, w * 0.65, groundY - 10, p, '#e17055', 'enemy', sceneData);
+  }
+  
+  // ----- EFFECTS -----
+  if (sceneData.action === 'attack' || sceneData.action === 'hit') {
+    drawCombatEffects(ctx, w * 0.65, groundY - 30, p);
+  }
+  
+  if (sceneData.action === 'search') {
+    drawSearchEffects(ctx, w * 0.35, groundY - 5, p);
+  }
+  
+  // ----- FOREGROUND DETAILS -----
+  drawForeground(ctx, w, h, groundY, p, sceneData);
+  
+  // ----- BONFIRE (always present) -----
+  drawBonfire(ctx, w * 0.5, groundY + 15, p);
+}
+
+// ----- HELPER FUNCTIONS -----
+
+function drawEnvironment(ctx, w, h, groundY, p, sceneData) {
+  switch(sceneData.location) {
+    case 'gate':
+      // Broken gate
+      ctx.fillStyle = '#2a221a';
+      ctx.fillRect(10, groundY - 60, 8, 60);
+      ctx.fillRect(w - 18, groundY - 50, 8, 50);
+      // Gate arch
+      ctx.fillStyle = '#3a322a';
+      ctx.fillRect(14, groundY - 70, w - 28, 6);
+      // Broken top
+      ctx.fillStyle = '#1a1410';
+      ctx.fillRect(30, groundY - 68, 12, 4);
+      ctx.fillRect(w - 42, groundY - 58, 12, 4);
+      break;
+      
+    case 'forest':
+      // Dark trees
+      for (let i = 0; i < 6; i++) {
+        const x = 20 + i * (w / 6) + Math.random() * 20;
+        const treeH = 40 + Math.random() * 30;
+        ctx.fillStyle = '#1a2010';
+        ctx.fillRect(x, groundY - treeH, 6, treeH);
+        ctx.fillStyle = '#0a1008';
+        ctx.fillRect(x - 12, groundY - treeH - 8, 30, 12);
+        // Dead branches
+        ctx.fillStyle = '#1a1608';
+        ctx.fillRect(x - 16, groundY - treeH + 10, 10, 3);
+        ctx.fillRect(x + 12, groundY - treeH + 20, 10, 3);
+      }
+      break;
+      
+    case 'crypt':
+      // Gravestones
+      for (let i = 0; i < 4; i++) {
+        const x = 30 + i * (w / 4);
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(x, groundY - 20, 16, 20);
+        ctx.fillStyle = '#222222';
+        ctx.fillRect(x + 2, groundY - 16, 12, 4);
+        // Crack
+        ctx.fillStyle = '#0a0a0a';
+        ctx.fillRect(x + 6, groundY - 12, 2, 8);
+      }
+      break;
+      
+    case 'tower':
+      // Broken tower
+      ctx.fillStyle = '#1a1612';
+      ctx.fillRect(w/2 - 30, groundY - 80, 60, 80);
+      ctx.fillStyle = '#2a221a';
+      ctx.fillRect(w/2 - 26, groundY - 76, 52, 10);
+      // Broken top
+      ctx.fillStyle = '#0a0806';
+      ctx.fillRect(w/2 - 20, groundY - 84, 16, 8);
+      ctx.fillRect(w/2 + 4, groundY - 78, 12, 6);
+      // Window
+      ctx.fillStyle = '#0a0a0a';
+      ctx.fillRect(w/2 - 8, groundY - 44, 16, 20);
+      ctx.fillStyle = 'rgba(255, 200, 100, 0.1)';
+      ctx.fillRect(w/2 - 6, groundY - 42, 12, 16);
+      break;
+  }
+}
+
+function drawCharacter(ctx, x, y, p, color, type, sceneData) {
+  // Body
+  ctx.fillStyle = color;
+  ctx.fillRect(x - 8, y - 28, 16, 28);
+  
+  // Head
+  ctx.fillStyle = '#d4a87a';
+  ctx.fillRect(x - 7, y - 36, 14, 10);
+  
+  // Hair
+  const hairColor = type === 'player' ? '#6a4a2a' : '#1a0a0a';
+  ctx.fillStyle = hairColor;
+  ctx.fillRect(x - 8, y - 40, 16, 6);
+  ctx.fillRect(x - 10, y - 36, 4, 4);
+  ctx.fillRect(x + 6, y - 36, 4, 4);
+  
+  // Eyes
+  const eyeColor = type === 'player' ? '#aabbcc' : '#ff6b35';
+  ctx.fillStyle = eyeColor;
+  ctx.fillRect(x - 5, y - 34, 3, 3);
+  ctx.fillRect(x + 2, y - 34, 3, 3);
+  
+  // Armor/Clothing details
+  if (type === 'player') {
+    ctx.fillStyle = '#8a7a5a';
+    ctx.fillRect(x - 6, y - 22, 12, 4);
+    ctx.fillRect(x - 8, y - 14, 16, 4);
+    // Belt
+    ctx.fillStyle = '#5a4a2a';
+    ctx.fillRect(x - 8, y - 6, 16, 3);
+  } else {
+    // Enemy armor details
+    ctx.fillStyle = '#4a3a2a';
+    ctx.fillRect(x - 8, y - 24, 16, 4);
+    ctx.fillRect(x - 10, y - 14, 20, 4);
+    // Enemy glowing core
+    ctx.fillStyle = 'rgba(255, 100, 30, 0.3)';
+    ctx.fillRect(x - 4, y - 20, 8, 8);
+  }
+  
+  // Legs
+  ctx.fillStyle = type === 'player' ? '#4a3a2a' : '#3a2a1a';
+  ctx.fillRect(x - 6, y, 5, 12);
+  ctx.fillRect(x + 1, y, 5, 12);
+  
+  // Boots
+  ctx.fillStyle = type === 'player' ? '#3a2a1a' : '#2a1a0a';
+  ctx.fillRect(x - 8, y + 10, 7, 4);
+  ctx.fillRect(x + 1, y + 10, 7, 4);
+  
+  // Arms
+  ctx.fillStyle = '#d4a87a';
+  if (type === 'player') {
+    // Player arms - one holding weapon
+    ctx.fillRect(x - 14, y - 20, 6, 8);
+    ctx.fillRect(x + 8, y - 20, 6, 8);
+    // Weapon
+    ctx.fillStyle = '#b8a88a';
+    ctx.fillRect(x + 12, y - 32, 3, 20);
+    ctx.fillStyle = '#8a7a6a';
+    ctx.fillRect(x + 10, y - 34, 7, 4);
+    ctx.fillRect(x + 11, y - 12, 5, 4);
+  } else {
+    // Enemy arms - with blade
+    ctx.fillRect(x - 16, y - 22, 6, 10);
+    ctx.fillRect(x + 10, y - 22, 6, 10);
+    // Enemy blade
+    ctx.fillStyle = '#6a5a4a';
+    ctx.fillRect(x + 16, y - 34, 4, 24);
+    ctx.fillStyle = '#8a7a6a';
+    ctx.fillRect(x + 14, y - 38, 8, 6);
+  }
+  
+  // Cape (player only)
+  if (type === 'player') {
+    ctx.fillStyle = 'rgba(100, 60, 40, 0.5)';
+    ctx.fillRect(x - 12, y - 10, 8, 16);
+    ctx.fillRect(x + 4, y - 10, 8, 16);
+  }
+}
+
+function drawCombatEffects(ctx, x, y, p) {
+  // Sword clash sparks
+  const colors = ['#ffd700', '#ff8c00', '#ff4500', '#ffffff'];
+  for (let i = 0; i < 25; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.random() * 35 + 5;
+    const size = Math.random() * 4 + 1;
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    ctx.fillStyle = color;
+    ctx.globalAlpha = Math.random() * 0.8 + 0.2;
+    ctx.fillRect(
+      x + Math.cos(angle) * dist,
+      y + Math.sin(angle) * dist,
+      size, size
+    );
+  }
+  ctx.globalAlpha = 1;
+  
+  // Impact flash
+  ctx.fillStyle = 'rgba(255, 255, 200, 0.15)';
+  ctx.beginPath();
+  ctx.arc(x, y, 20, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSearchEffects(ctx, x, y, p) {
+  // Sparkles around search area
+  for (let i = 0; i < 12; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.random() * 20 + 5;
+    const size = Math.random() * 3 + 1;
+    ctx.fillStyle = `rgba(200, 230, 255, ${Math.random() * 0.5 + 0.1})`;
+    ctx.fillRect(
+      x + Math.cos(angle) * dist,
+      y + Math.sin(angle) * dist - 10,
+      size, size
+    );
+  }
+  
+  // Glow ring
+  ctx.fillStyle = 'rgba(200, 230, 255, 0.05)';
+  ctx.beginPath();
+  ctx.arc(x, y - 10, 25, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawForeground(ctx, w, h, groundY, p, sceneData) {
+  // Grass blades
+  for (let i = 0; i < 40; i++) {
+    const x = Math.random() * w;
+    const y = groundY - Math.random() * 6;
+    const height = Math.random() * 6 + 2;
+    ctx.fillStyle = Math.random() > 0.5 ? '#1a2a10' : '#2a1a10';
+    ctx.fillRect(x, y, 1, height);
+  }
+  
+  // Rocks
+  for (let i = 0; i < 6; i++) {
+    const x = Math.random() * w;
+    const y = groundY + Math.random() * 20 + 10;
+    const size = Math.random() * 8 + 4;
+    ctx.fillStyle = '#2a221a';
+    ctx.fillRect(x, y, size, size * 0.6);
+    ctx.fillStyle = '#3a322a';
+    ctx.fillRect(x + 2, y + 2, size * 0.4, size * 0.3);
+  }
+}
+
+function drawBonfire(ctx, x, y, p) {
+  // Wood logs
+  ctx.fillStyle = '#3a2a1a';
+  ctx.fillRect(x - 20, y - 4, 40, 8);
+  ctx.fillStyle = '#4a3a2a';
+  ctx.fillRect(x - 24, y + 2, 48, 6);
+  ctx.fillRect(x - 16, y - 8, 32, 6);
+  
+  // Fire base glow
+  ctx.fillStyle = 'rgba(255, 150, 50, 0.05)';
+  ctx.beginPath();
+  ctx.arc(x, y - 10, 40, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Main fire
+  const flicker = Math.random() * 0.2 + 0.8;
+  ctx.fillStyle = `rgba(255, 180, 50, ${0.5 * flicker})`;
+  ctx.fillRect(x - 14, y - 30 * flicker, 28, 26);
+  ctx.fillStyle = `rgba(255, 100, 20, ${0.3 * flicker})`;
+  ctx.fillRect(x - 8, y - 40 * flicker, 16, 22);
+  ctx.fillStyle = `rgba(255, 60, 10, ${0.2 * flicker})`;
+  ctx.fillRect(x - 4, y - 48 * flicker, 8, 16);
+  
+  // Embers
+  for (let i = 0; i < 10; i++) {
+    const ex = x + (Math.random() - 0.5) * 30;
+    const ey = y - 10 - Math.random() * 35;
+    const size = Math.random() * 3 + 1;
+    const alpha = Math.random() * 0.5 + 0.2;
+    ctx.fillStyle = `rgba(255, 200, 100, ${alpha})`;
+    ctx.fillRect(ex, ey, size, size);
+  }
+  
+  // Light cone (on ground)
+  ctx.fillStyle = 'rgba(255, 150, 50, 0.03)';
+  ctx.fillRect(x - 50, y + 4, 100, 16);
 }
 
 // ---------- Pixel Scene Functions ----------
