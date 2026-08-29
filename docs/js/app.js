@@ -1,5 +1,3 @@
-const SUPABASE_URL = window.SUPABASE_URL || 'https://crusicbsdbdqlajgbvsb.supabase.co';
-const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNydXNpY2JzZGJkcWxhamdidnNiIiwiaWF0IjoxNzg3NzAzMTU4LCJleHAiOjIxMDMyNzkxNX0.WWdKIiUFA7ewIkVCTSXdnGI0fpLMOg65UifijhL8Fig';// ============================================================
 // Stackfall — Modern Client Application Logic
 // With Character Creation, Stats System, and Realtime Fixes
 // ============================================================
