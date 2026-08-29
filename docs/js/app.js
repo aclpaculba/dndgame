@@ -1386,37 +1386,8 @@ async function generateSceneImage(sceneData) {
 }
 
 function buildImagePrompt(sceneData) {
-  const { location, action, mood, actor, target } = sceneData;
-  
-  let prompt = '';
-  
-  const locations = {
-    bonfire: 'a crumbling bonfire in a dark fantasy wasteland',
-    gate: 'a broken stone gate in an ashen wasteland',
-    forest: 'dark twisted trees in a dead forest',
-    shrine: 'an ancient half-collapsed shrine in the ruins',
-    crypt: 'a dark stone crypt with old graves',
-    tower: 'a shattered tower under a red lightning sky',
-    marsh: 'a misty marsh that swallows footsteps',
-    keep: 'a ruined stone keep with scarred walls',
-  };
-  prompt += locations[location] || 'a dark fantasy wasteland';
-  
-  if (action === 'attack' || action === 'hit') {
-    prompt += `, ${actor || 'a warrior'} attacking ${target || 'a monster'} with a weapon`;
-  } else if (action === 'heal') {
-    prompt += `, ${actor || 'a character'} being healed by a glowing light`;
-  } else if (action === 'search') {
-    prompt += `, ${actor || 'a character'} searching through the ashes for supplies`;
-  } else if (action === 'stealth') {
-    prompt += `, ${actor || 'a character'} hiding in the shadows`;
-  }
-  
-  if (mood === 'dark') prompt += ', dark and ominous atmosphere';
-  else if (mood === 'fire') prompt += ', warm firelight illuminating the scene';
-  else if (mood === 'combat') prompt += ', intense combat scene, sparks flying';
-  
-  return prompt;
+  // Temporarily simplify the prompt for testing
+  return `${sceneData.actor} ${sceneData.action} a ${sceneData.target} at the ${sceneData.location}`;
 }
 
 // ---------- Fallback Pixel Art Renderer (canvas) ----------
