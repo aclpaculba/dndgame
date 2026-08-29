@@ -2,7 +2,7 @@ import { corsHeaders } from '../_shared/cors.ts';
 
 // Pollinations.ai - Completely free image generation
 // https://pollinations.ai/
-
+// @ts-ignore
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -36,6 +36,7 @@ Deno.serve(async (req) => {
   } catch (err) {
     console.error('generate-image error:', err);
     return new Response(JSON.stringify({ 
+    // @ts-ignore
       error: String(err.message || err),
       imageUrl: null,
     }), {

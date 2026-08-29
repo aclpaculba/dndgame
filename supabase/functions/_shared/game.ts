@@ -1,3 +1,4 @@
+// @ts-ignore
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.46.0';
 import { callStoryteller } from './storyteller.ts';
 
@@ -986,10 +987,11 @@ Write the outcome of that choice for ${actingPlayer.display_name} and give the n
       narrative.trim(),
       describeImpact(actingPlayer.display_name, appliedImpact),
       describeEnemyImpact(enemyName, appliedEnemyImpact),
-    ];
+    ];// @ts-ignore
     if (lootedItem) lines.push(`${actingPlayer.display_name} found a ${lootedItem.name}!`);
     if (!isAlive) lines.push(`${actingPlayer.display_name} has fallen. The dead pass into Ghost Mode.`);
     if (partyLabel) lines.push(partyLabel);
+    // @ts-ignore
     lootedItemName = lootedItem?.name ?? null;
 
     if (finalEnemyHealth <= 0) {
