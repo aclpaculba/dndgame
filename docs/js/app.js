@@ -1,4 +1,5 @@
-// ============================================================
+const SUPABASE_URL = window.SUPABASE_URL || 'https://crusicbsdbdqlajgbvsb.supabase.co';
+const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNydXNpY2JzZGJkcWxhamdidnNiIiwiaWF0IjoxNzg3NzAzMTU4LCJleHAiOjIxMDMyNzkxNX0.WWdKIiUFA7ewIkVCTSXdnGI0fpLMOg65UifijhL8Fig';// ============================================================
 // Stackfall — Modern Client Application Logic
 // With Character Creation, Stats System, and Realtime Fixes
 // ============================================================
@@ -1319,18 +1320,40 @@ async function generateSceneImage(sceneData) {
     
     lastImagePrompt = prompt;
     
-    const { data, error } = await sb.functions.invoke('generate-image', {
-      body: { 
+    // --- FIX: Use fetch with correct auth headers ---
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/generate-image`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
         prompt: prompt,
         location: sceneData.location,
         action: sceneData.action,
         mood: sceneData.mood,
-      }
+      })
     });
     
-    if (error) throw error;
+    const data = await response.json();
+    
+    if (!response.ok) throw new Error(data.error || 'Function returned error');
     
     if (data.imageUrl) {
+      // Load the image
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      
+      const imageLoadPromise = new Promise((resolve, reject) => {
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('Image failed to load'));
+        setTimeout(() => reject(new Error('Image load timeout')), 15000);
+      });
+      
+      img.src = data.imageUrl;
+      await imageLoadPromise;
+      
       if (imageEl) {
         imageEl.src = data.imageUrl;
         imageEl.classList.remove('hidden');
@@ -1340,19 +1363,13 @@ async function generateSceneImage(sceneData) {
       }
       if (canvasEl) canvasEl.classList.add('hidden');
       
-    } else if (data.placeholder) {
-      if (canvasEl) {
-        canvasEl.classList.remove('hidden');
-        renderFallbackPixelScene(canvasEl, sceneData);
-      }
-      if (imageEl) imageEl.classList.add('hidden');
-      
     } else {
-      throw new Error('No image generated');
+      throw new Error('No image URL returned');
     }
     
   } catch (error) {
     console.warn('Image generation failed:', error);
+    // Use fallback pixel renderer
     if (canvasEl) {
       canvasEl.classList.remove('hidden');
       renderFallbackPixelScene(canvasEl, sceneData);
