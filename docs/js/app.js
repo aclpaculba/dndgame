@@ -1386,8 +1386,45 @@ async function generateSceneImage(sceneData) {
 }
 
 function buildImagePrompt(sceneData) {
-  // Temporarily simplify the prompt for testing
-  return `${sceneData.actor} ${sceneData.action} a ${sceneData.target} at the ${sceneData.location}`;
+  const { location, action, mood, actor, target } = sceneData;
+  
+  // Short, punchy prompt - under 60 characters
+  let prompt = '';
+  
+  // Base scene
+  const locationWords = {
+    bonfire: 'campfire in ruins',
+    gate: 'broken stone gate',
+    forest: 'dark twisted forest',
+    shrine: 'ancient shrine',
+    crypt: 'dark stone crypt',
+    tower: 'shattered tower',
+    marsh: 'misty marsh',
+    keep: 'ruined keep',
+    ash: 'ash wasteland'
+  };
+  const base = locationWords[location] || 'dark fantasy wasteland';
+  
+  // Action (short)
+  const actionWords = {
+    attack: 'warrior fighting monster',
+    hit: 'warrior striking enemy',
+    heal: 'warrior being healed',
+    search: 'warrior searching ashes',
+    stealth: 'warrior hiding in shadows',
+    neutral: 'warrior standing'
+  };
+  const actionText = actionWords[action] || 'warrior';
+  
+  // Build short prompt
+  prompt = `${actionText} at ${base}`;
+  
+  // Add mood in 2-3 words
+  if (mood === 'combat') prompt += ', battle scene';
+  else if (mood === 'dark') prompt += ', dark atmosphere';
+  else if (mood === 'fire') prompt += ', firelight glow';
+  
+  return prompt;
 }
 
 // ---------- Fallback Pixel Art Renderer (canvas) ----------
