@@ -1,6 +1,6 @@
 import { corsHeaders } from '../_shared/cors.ts';
 
-const HF_API_KEY = Deno.env.get('HF_API_KEY') || '';
+const HF_API_KEY = Deno.env.get('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') || '';
 
 // Try different models if one fails
 const MODELS = [
