@@ -1986,10 +1986,6 @@ function buildImagePrompt(sceneData, storyText) {
   return `pixel art style, 16-bit retro game scene, dark fantasy rpg, ${prompt}, pixelated, low resolution, detailed pixel art, grim atmosphere`;
 }
 
-// ---------- AI IMAGE GENERATION ----------
-// ---------- AI IMAGE GENERATION ----------
-let isGeneratingImage = false;
-let lastImagePrompt = '';
 
 // ---------- AI IMAGE GENERATION ----------
 let isGeneratingImage = false;
