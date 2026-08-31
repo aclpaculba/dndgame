@@ -1411,14 +1411,17 @@ function parseSceneFromStory(last, session) {
     mood = 'fire';
   }
   
-  // Extract loot info
-  let loot = null;
-  if (last.loot) {
-    loot = last.loot;
-  } else if (outcome.includes('found') || outcome.includes('discovered')) {
-    const match = outcome.match(/found a? (?:[^.!?]+)/i);
-    if (match) loot = match[0];
-  }
+  // ----- GET ALL PLAYERS -----
+  const allPlayers = session.players || [];
+  const alivePlayers = allPlayers.filter(p => p.is_alive);
+  const deadPlayers = allPlayers.filter(p => !p.is_alive);
+  
+  // Get player names
+  const playerNames = alivePlayers.map(p => p.display_name);
+  const deadNames = deadPlayers.map(p => p.display_name);
+  
+  // Find the acting player's full data
+  const actingPlayer = allPlayers.find(p => p.display_name === player);
   
   return {
     location,
@@ -1426,10 +1429,16 @@ function parseSceneFromStory(last, session) {
     mood,
     actor: player,
     target: target || null,
-    loot: loot,
+    loot: last.loot || null,
     roll: last.roll || null,
     impact: last.impact || 0,
-    allies: session.players ? session.players.filter(p => p.is_alive).map(p => p.display_name) : [],
+    // ----- NEW: Party info -----
+    partyMembers: playerNames,
+    deadMembers: deadNames,
+    partyCount: allPlayers.length,
+    aliveCount: alivePlayers.length,
+    actingPlayer: actingPlayer,
+    allPlayers: allPlayers,
   };
 }
 
@@ -1490,32 +1499,18 @@ function renderFallbackPixelScene(canvas, sceneData) {
   
   ctx.imageSmoothingEnabled = false;
   
-  // Clear
+  // ----- CLEAR -----
   ctx.fillStyle = '#0a0806';
   ctx.fillRect(0, 0, w, h);
   
-  // Sky gradient
-  const colors = {
-    dark: ['#1a1010', '#0a0806'],
-    fire: ['#2a1a0a', '#0a0806'],
+  // ----- SKY (based on mood) -----
+  const skyColors = {
     combat: ['#1a0a0a', '#0a0604'],
-    neutral: ['#1a1814', '#0a0806'],
-    ash: ['#2a2820', '#1a1814'],
-    gate: ['#1a1410', '#0a0806'],
-    crypt: ['#0a0808', '#050303'],
-    shrine: ['#2a1a0a', '#0a0806'],
-    forest: ['#1a1a10', '#0a0a06'],
-    tower: ['#1a0a0a', '#0a0505']
+    fire: ['#2a1a0a', '#0a0806'],
+    dark: ['#0a0606', '#040202'],
+    neutral: ['#1a1814', '#0a0806']
   };
-  const sky = colors[sceneData.location] || colors.neutral;
-  if (sceneData.mood === 'combat') {
-    sky[0] = '#2a0a0a';
-    sky[1] = '#1a0505';
-  } else if (sceneData.mood === 'fire') {
-    sky[0] = '#3a1a0a';
-    sky[1] = '#1a0804';
-  }
-  
+  const sky = skyColors[sceneData.mood] || skyColors.neutral;
   for (let y = 0; y < h * 0.6; y += p) {
     const t = y / (h * 0.6);
     const r = parseInt(sky[0].slice(1,3), 16) + (parseInt(sky[1].slice(1,3), 16) - parseInt(sky[0].slice(1,3), 16)) * t;
@@ -1525,52 +1520,40 @@ function renderFallbackPixelScene(canvas, sceneData) {
     ctx.fillRect(0, y, w, p);
   }
   
-  // Stars/embers
-  const numParticles = sceneData.location === 'ash' ? 15 : 8;
-  for (let i = 0; i < numParticles; i++) {
-    const x = Math.random() * w;
-    const y = Math.random() * (h * 0.4);
-    const size = Math.random() * 2 + 1;
-    const alpha = Math.random() * 0.5 + 0.2;
-    ctx.fillStyle = `rgba(255, 200, 100, ${alpha})`;
-    ctx.fillRect(x, y, size, size);
-  }
-  
-  // Ground
+  // ----- GROUND -----
   const groundY = h * 0.62;
-  const groundColors = ['#1a1510', '#1c1712', '#18130e', '#1e1914'];
-  for (let y = groundY; y < h; y += p) {
-    const colorIndex = Math.floor(((y - groundY) / (h - groundY)) * groundColors.length);
-    ctx.fillStyle = groundColors[Math.min(colorIndex, groundColors.length - 1)];
-    ctx.fillRect(0, y, w, p);
-  }
+  ctx.fillStyle = '#1a1510';
+  ctx.fillRect(0, groundY, w, h - groundY);
   
-  // Ground texture
-  const density = sceneData.location === 'ash' ? 100 : 60;
-  for (let i = 0; i < density; i++) {
-    const x = Math.random() * w;
-    const y = groundY + Math.random() * (h - groundY);
-    const size = Math.random() * 3 + 1;
-    const shade = Math.random() > 0.5 ? '#2a2018' : '#0a0806';
-    ctx.fillStyle = shade;
-    ctx.fillRect(x, y, size, size);
-  }
-  
-  // Background environment
+  // ----- ENVIRONMENT (based on location) -----
   drawEnvironment(ctx, w, h, groundY, p, sceneData);
   
-  // Characters
-  drawCharacter(ctx, w * 0.35, groundY - 10, p, '#f0c477', 'player', sceneData);
+  // ----- DRAW ALL PARTY MEMBERS -----
+  const partyMembers = sceneData.partyMembers || [];
+  const actor = sceneData.actor;
   
-  if (sceneData.action === 'attack' || sceneData.action === 'hit' || sceneData.target) {
-    drawCharacter(ctx, w * 0.65, groundY - 10, p, '#e17055', 'enemy', sceneData);
+  // Position players in a row
+  const maxPlayers = Math.min(partyMembers.length, 4);
+  const spacing = w / (maxPlayers + 1);
+  const startX = spacing;
+  
+  partyMembers.slice(0, 4).forEach((name, index) => {
+    const x = startX + index * spacing;
+    const isActor = (name === actor);
+    const color = isActor ? '#f0c477' : '#8a9a7a';
+    
+    // Draw the character
+    drawCharacter(ctx, x, groundY - 10, p, color, 'player', sceneData, name, isActor);
+  });
+  
+  // ----- DRAW ENEMY -----
+  if (sceneData.target) {
+    const enemyX = w * 0.75;
+    drawCharacter(ctx, enemyX, groundY - 10, p, '#e17055', 'enemy', sceneData, sceneData.target, false);
   }
   
-  // Effects
+  // ----- EFFECTS (based on action) -----
   drawEffects(ctx, w, h, groundY, p, sceneData);
-  
-  // Bonfire
-  drawBonfire(ctx, w * 0.5, groundY + 15, p);
 }
 
 function drawEnvironment(ctx, w, h, groundY, p, sceneData) {
@@ -1665,7 +1648,7 @@ function drawEnvironment(ctx, w, h, groundY, p, sceneData) {
   }
 }
 
-function drawCharacter(ctx, x, y, p, color, type, sceneData) {
+function drawCharacter(ctx, x, y, p, color, type, sceneData, name, isActor) {
   const isPlayer = type === 'player';
   const isAttacking = sceneData.action === 'attack' || sceneData.action === 'hit';
   const isSearching = sceneData.action === 'search';
@@ -1675,15 +1658,15 @@ function drawCharacter(ctx, x, y, p, color, type, sceneData) {
   const isTalking = sceneData.action === 'talk';
   const isObserving = sceneData.action === 'observe';
   
-  // Body
+  // ---- BODY ----
   ctx.fillStyle = color;
   ctx.fillRect(x - 8, y - 28, 16, 28);
   
-  // Head
+  // ---- HEAD ----
   ctx.fillStyle = '#d4a87a';
   ctx.fillRect(x - 7, y - 36, 14, 10);
   
-  // Hair
+  // ---- HAIR ----
   const hairColor = isPlayer ? '#6a4a2a' : '#1a0a0a';
   ctx.fillStyle = hairColor;
   if (isPlayer) {
@@ -1694,7 +1677,7 @@ function drawCharacter(ctx, x, y, p, color, type, sceneData) {
     ctx.fillRect(x - 8, y - 40, 16, 6);
   }
   
-  // Eyes
+  // ---- EYES ----
   const eyeColor = isPlayer ? '#aabbcc' : '#ff6b35';
   ctx.fillStyle = eyeColor;
   if (isStealth) {
@@ -1708,7 +1691,7 @@ function drawCharacter(ctx, x, y, p, color, type, sceneData) {
     ctx.fillRect(x + 2, y - 34, 3, 3);
   }
   
-  // Armor/Clothing
+  // ---- ARMOR / CLOTHING ----
   if (isPlayer) {
     ctx.fillStyle = '#8a7a5a';
     ctx.fillRect(x - 6, y - 22, 12, 4);
@@ -1723,7 +1706,7 @@ function drawCharacter(ctx, x, y, p, color, type, sceneData) {
     ctx.fillRect(x - 4, y - 20, 8, 8);
   }
   
-  // Arms
+  // ---- ARMS & WEAPONS (based on action) ----
   ctx.fillStyle = '#d4a87a';
   if (isAttacking) {
     ctx.fillRect(x - 16, y - 28, 6, 12);
@@ -1763,7 +1746,7 @@ function drawCharacter(ctx, x, y, p, color, type, sceneData) {
     }
   }
   
-  // Legs
+  // ---- LEGS ----
   ctx.fillStyle = isPlayer ? '#4a3a2a' : '#3a2a1a';
   if (isStealth) {
     ctx.fillRect(x - 6, y + 4, 5, 8);
@@ -1776,7 +1759,7 @@ function drawCharacter(ctx, x, y, p, color, type, sceneData) {
     ctx.fillRect(x + 1, y, 5, 12);
   }
   
-  // Boots
+  // ---- BOOTS ----
   ctx.fillStyle = isPlayer ? '#3a2a1a' : '#2a1a0a';
   if (isStealth) {
     ctx.fillRect(x - 8, y + 10, 7, 2);
@@ -1786,7 +1769,7 @@ function drawCharacter(ctx, x, y, p, color, type, sceneData) {
     ctx.fillRect(x + 1, y + 10, 7, 4);
   }
   
-  // Cape (player only)
+  // ---- CAPE (player only) ----
   if (isPlayer) {
     ctx.fillStyle = 'rgba(100, 60, 40, 0.5)';
     if (isFleeing) {
@@ -1795,6 +1778,20 @@ function drawCharacter(ctx, x, y, p, color, type, sceneData) {
     } else {
       ctx.fillRect(x - 12, y - 10, 8, 16);
       ctx.fillRect(x + 4, y - 10, 8, 16);
+    }
+  }
+  
+  // ---- CHARACTER NAME ----
+  if (name) {
+    ctx.fillStyle = isActor ? '#f0c477' : 'rgba(255,255,255,0.5)';
+    ctx.font = `${isActor ? 'bold ' : ''}8px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText(name, x, y - 44);
+    
+    // Highlight actor with a small indicator
+    if (isActor) {
+      ctx.fillStyle = 'rgba(240, 196, 119, 0.2)';
+      ctx.fillRect(x - 12, y - 48, 24, 4);
     }
   }
 }
@@ -1942,14 +1939,14 @@ function drawBonfire(ctx, x, y, p) {
 }
 
 // ---------- IMAGE PROMPT BUILDER ----------
+// ---------- IMAGE PROMPT BUILDER ----------
 function buildImagePrompt(sceneData, storyText) {
   // Use the actual story text as the prompt
-  // Clean it up for the image generator
   let prompt = storyText || '';
   
   // If no story text, fallback to scene data
   if (!prompt || prompt.length < 10) {
-    const { location, action, mood, actor, target } = sceneData;
+    const { location, action, mood, actor, target, partyMembers } = sceneData;
     const locationMap = {
       bonfire: 'campfire in ruins',
       gate: 'broken stone gate',
@@ -1972,7 +1969,17 @@ function buildImagePrompt(sceneData, storyText) {
       observe: 'watching carefully',
       neutral: 'standing'
     };
-    prompt = `${actor} ${actionMap[action] || 'standing'} at ${locationMap[location] || 'dark wasteland'}`;
+    
+    // Include party members in the prompt
+    let partyText = '';
+    if (partyMembers && partyMembers.length > 1) {
+      const otherMembers = partyMembers.filter(name => name !== actor);
+      if (otherMembers.length > 0) {
+        partyText = ` with ${otherMembers.join(', ')}`;
+      }
+    }
+    
+    prompt = `${actor}${partyText} ${actionMap[action] || 'standing'} at ${locationMap[location] || 'dark wasteland'}`;
   }
   
   // Add pixel art style instructions
@@ -1980,6 +1987,10 @@ function buildImagePrompt(sceneData, storyText) {
 }
 
 // ---------- AI IMAGE GENERATION ----------
+// ---------- AI IMAGE GENERATION ----------
+let isGeneratingImage = false;
+let lastImagePrompt = '';
+
 // ---------- AI IMAGE GENERATION ----------
 let isGeneratingImage = false;
 let lastImagePrompt = '';
@@ -2017,7 +2028,7 @@ async function generateSceneImage(sceneData, storyText) {
         location: sceneData.location,
         action: sceneData.action,
         mood: sceneData.mood,
-        storyText: storyText || '', // Pass the story text to the Edge Function
+        storyText: storyText || '',
       }
     });
     
@@ -2101,13 +2112,18 @@ async function updatePixelScene() {
   
   // Get the story narrative text
   const storyText = latestSession.story_narrative || '';
-  // Combine with the last action outcome for more context
   const fullStoryText = `${storyText} ${last.outcome || ''}`;
   
+  // Add party info to the prompt
+  const partyInfo = sceneData.partyMembers && sceneData.partyMembers.length > 0 
+    ? ` Party members: ${sceneData.partyMembers.join(', ')}.` 
+    : '';
+  
+  // Update the overlay text
   updatePixelOverlay(last);
   
-  // Generate image with the story text
-  await generateSceneImage(sceneData, fullStoryText);
+  // Generate image with the story text and party info
+  await generateSceneImage(sceneData, fullStoryText + partyInfo);
   
   container.classList.remove('flash');
   void container.offsetWidth;
