@@ -74,6 +74,9 @@ let characters = [];
 let latestCharactersById = new Map();
 let autoResetTimer = null;
 let pendingTableStartSessionId = null;
+let isGeneratingStory = false;  
+let refreshTimeout = null;      
+let lastStoryVersion = '';      
 
 const STORAGE_KEY = 'lastEmberUser';
 const CHAR_STORAGE_KEY = 'lastEmberCharacter';
@@ -868,6 +871,15 @@ async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true 
 }
 
 async function seedLocalOpening(sessionId) {
+  // Check if story already exists first
+  const { data: session } = await sb.from('sessions').select('story_narrative, story_choices').eq('id', sessionId).single();
+  
+  // Only seed if empty or stuck
+  if (session && session.story_narrative && session.story_narrative !== 'The story is being written…' && session.story_choices?.length > 0) {
+    console.log('Story already exists, skipping local seed');
+    return;
+  }
+  
   const { error } = await sb.from('sessions').update({
     status: 'active',
     current_turn_index: 0,
@@ -1025,21 +1037,39 @@ $('modal-alltime-stats')?.addEventListener('click', (e) => {
 
 // ---------- Game Screen ----------
 async function refreshGameState() {
-  const [{ data: session }, { data: players }] = await Promise.all([
-    sb.from('sessions').select('*').eq('id', currentSessionId).single(),
-    sb.from('players').select('*').eq('session_id', currentSessionId).order('position_in_turn_order'),
-  ]);
-  if (!session) return;
-  
-  latestSession = session;
-  latestPlayers = players || [];
-  latestCharactersById = new Map();
-  renderGame();
-  
-  if (latestSession.status === 'completed') {
-    sounds.playWin();
-    showEndScreen(latestSession);
+  // Debounce: clear any pending refresh
+  if (refreshTimeout) {
+    clearTimeout(refreshTimeout);
+    refreshTimeout = null;
   }
+  
+  refreshTimeout = setTimeout(async () => {
+    refreshTimeout = null;
+    
+    const [{ data: session }, { data: players }] = await Promise.all([
+      sb.from('sessions').select('*').eq('id', currentSessionId).single(),
+      sb.from('players').select('*').eq('session_id', currentSessionId).order('position_in_turn_order'),
+    ]);
+    if (!session) return;
+    
+    // Check if story actually changed
+    const storyHash = (session.story_narrative || '') + (session.story_choices || []).join(',');
+    if (storyHash === lastStoryVersion && session.status !== 'completed') {
+      // No change, skip re-render
+      return;
+    }
+    lastStoryVersion = storyHash;
+    
+    latestSession = session;
+    latestPlayers = players || [];
+    latestCharactersById = new Map();
+    renderGame();
+    
+    if (latestSession.status === 'completed') {
+      sounds.playWin();
+      showEndScreen(latestSession);
+    }
+  }, 100);
 }
 
 function renderPlayerStats(character) {
@@ -1294,22 +1324,33 @@ function enterGame(sessionId) {
 
 // ---------- Retry Kickoff ----------
 async function retryKickoff() {
+  if (isGeneratingStory) {
+    toast('Story is already being generated...', 2000);
+    return;
+  }
+  
   const btn = $('btn-start-tale');
   if (btn) {
     btn.disabled = true;
     btn.textContent = 'Writing…';
   }
   
-  const { data, error } = await sb.functions.invoke('generate-story', {
-    body: { sessionId: currentSessionId, userId: currentUser.uid, kickoff: true },
-  });
+  isGeneratingStory = true;
   
-  if (error) {
-    const message = await extractFunctionError(error, data);
-    console.error('Retry kickoff failed:', message, error);
-    await seedLocalOpening(currentSessionId);
-    await refreshGameState();
-    toast('Story engine unavailable. Local opening loaded.', 5000, 'error');
+  try {
+    const { data, error } = await sb.functions.invoke('generate-story', {
+      body: { sessionId: currentSessionId, userId: currentUser.uid, kickoff: true },
+    });
+    
+    if (error) {
+      const message = await extractFunctionError(error, data);
+      console.error('Retry kickoff failed:', message, error);
+      await seedLocalOpening(currentSessionId);
+      await refreshGameState();
+      toast('Story engine unavailable. Local opening loaded.', 5000, 'error');
+    }
+  } finally {
+    isGeneratingStory = false;
     if (btn) {
       btn.disabled = false;
       btn.textContent = 'Start the tale';
@@ -1317,10 +1358,762 @@ async function retryKickoff() {
   }
 }
 
+// ---------- Pixel Scene Functions ----------
+function parseSceneFromStory(last, session) {
+  const choice = (last.choice || '').toLowerCase();
+  const player = last.player || 'Someone';
+  const enemyName = session.boss_name || 'enemy';
+  const outcome = (last.outcome || '').toLowerCase();
+  
+  // Determine location
+  let location = 'ash';
+  if (session.current_room_index !== undefined) {
+    const roomIndex = session.current_room_index % 8;
+    const rooms = ['bonfire', 'gate', 'forest', 'shrine', 'crypt', 'tower', 'marsh', 'keep'];
+    location = rooms[roomIndex] || 'ash';
+  }
+  
+  // Determine action
+  let action = 'neutral';
+  let target = null;
+  
+  if (choice.includes('attack') || choice.includes('strike') || choice.includes('fight')) {
+    action = 'attack';
+    target = enemyName;
+  } else if (choice.includes('heal') || choice.includes('rest')) {
+    action = 'heal';
+  } else if (choice.includes('search') || choice.includes('investigate')) {
+    action = 'search';
+  } else if (choice.includes('sneak') || choice.includes('stealth') || choice.includes('hide')) {
+    action = 'stealth';
+  } else if (choice.includes('observe') || choice.includes('watch') || choice.includes('look')) {
+    action = 'observe';
+  } else if (choice.includes('run') || choice.includes('flee') || choice.includes('retreat')) {
+    action = 'flee';
+  } else if (choice.includes('talk') || choice.includes('persuade') || choice.includes('convince')) {
+    action = 'talk';
+  } else if (last.impact !== undefined && last.impact < 0) {
+    action = 'hit';
+    target = player;
+  } else if (last.impact !== undefined && last.impact > 0) {
+    action = 'heal';
+  }
+  
+  // Determine mood
+  let mood = 'neutral';
+  if (action === 'attack' || action === 'hit') {
+    mood = 'combat';
+  } else if (location === 'bonfire') {
+    mood = 'fire';
+  } else if (location === 'crypt' || location === 'tower') {
+    mood = 'dark';
+  } else if (action === 'heal') {
+    mood = 'fire';
+  }
+  
+  // Extract loot info
+  let loot = null;
+  if (last.loot) {
+    loot = last.loot;
+  } else if (outcome.includes('found') || outcome.includes('discovered')) {
+    const match = outcome.match(/found a? (?:[^.!?]+)/i);
+    if (match) loot = match[0];
+  }
+  
+  return {
+    location,
+    action,
+    mood,
+    actor: player,
+    target: target || null,
+    loot: loot,
+    roll: last.roll || null,
+    impact: last.impact || 0,
+    allies: session.players ? session.players.filter(p => p.is_alive).map(p => p.display_name) : [],
+  };
+}
+
+function updatePixelOverlay(last) {
+  const playerEl = $('pixel-player');
+  const actionEl = $('pixel-action');
+  const targetEl = $('pixel-target');
+  const rollEl = $('pixel-roll');
+  const resultEl = $('pixel-result');
+  
+  if (playerEl) playerEl.textContent = last.player || 'Someone';
+  if (actionEl) actionEl.textContent = last.choice || 'acted';
+  if (targetEl) {
+    const enemyName = latestSession?.boss_name || 'enemy';
+    if (last.impact !== undefined && last.impact < 0) {
+      targetEl.textContent = `→ ${enemyName}`;
+    } else {
+      targetEl.textContent = '';
+    }
+  }
+  
+  if (rollEl) {
+    if (last.roll) {
+      rollEl.textContent = `🎲 ${last.roll}`;
+      rollEl.style.display = 'inline-block';
+    } else {
+      rollEl.style.display = 'none';
+    }
+  }
+  
+  if (resultEl) {
+    if (last.impact !== undefined && last.impact !== null) {
+      if (last.impact < 0) {
+        resultEl.textContent = `💔 ${Math.abs(last.impact)} HP`;
+        resultEl.className = 'pixel-result damage';
+      } else if (last.impact > 0) {
+        resultEl.textContent = `💚 +${last.impact} HP`;
+        resultEl.className = 'pixel-result heal';
+      } else {
+        resultEl.textContent = '✦ 0 HP';
+        resultEl.className = 'pixel-result';
+      }
+    } else if (last.loot) {
+      resultEl.textContent = `📦 ${last.loot}`;
+      resultEl.className = 'pixel-result heal';
+    } else {
+      resultEl.textContent = '';
+    }
+  }
+}
+
+// ---------- Fallback Pixel Art Renderer (canvas) ----------
+function renderFallbackPixelScene(canvas, sceneData) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  const p = 4;
+  
+  ctx.imageSmoothingEnabled = false;
+  
+  // Clear
+  ctx.fillStyle = '#0a0806';
+  ctx.fillRect(0, 0, w, h);
+  
+  // Sky gradient
+  const colors = {
+    dark: ['#1a1010', '#0a0806'],
+    fire: ['#2a1a0a', '#0a0806'],
+    combat: ['#1a0a0a', '#0a0604'],
+    neutral: ['#1a1814', '#0a0806'],
+    ash: ['#2a2820', '#1a1814'],
+    gate: ['#1a1410', '#0a0806'],
+    crypt: ['#0a0808', '#050303'],
+    shrine: ['#2a1a0a', '#0a0806'],
+    forest: ['#1a1a10', '#0a0a06'],
+    tower: ['#1a0a0a', '#0a0505']
+  };
+  const sky = colors[sceneData.location] || colors.neutral;
+  if (sceneData.mood === 'combat') {
+    sky[0] = '#2a0a0a';
+    sky[1] = '#1a0505';
+  } else if (sceneData.mood === 'fire') {
+    sky[0] = '#3a1a0a';
+    sky[1] = '#1a0804';
+  }
+  
+  for (let y = 0; y < h * 0.6; y += p) {
+    const t = y / (h * 0.6);
+    const r = parseInt(sky[0].slice(1,3), 16) + (parseInt(sky[1].slice(1,3), 16) - parseInt(sky[0].slice(1,3), 16)) * t;
+    const g = parseInt(sky[0].slice(3,5), 16) + (parseInt(sky[1].slice(3,5), 16) - parseInt(sky[0].slice(3,5), 16)) * t;
+    const b = parseInt(sky[0].slice(5,7), 16) + (parseInt(sky[1].slice(5,7), 16) - parseInt(sky[0].slice(5,7), 16)) * t;
+    ctx.fillStyle = `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+    ctx.fillRect(0, y, w, p);
+  }
+  
+  // Stars/embers
+  const numParticles = sceneData.location === 'ash' ? 15 : 8;
+  for (let i = 0; i < numParticles; i++) {
+    const x = Math.random() * w;
+    const y = Math.random() * (h * 0.4);
+    const size = Math.random() * 2 + 1;
+    const alpha = Math.random() * 0.5 + 0.2;
+    ctx.fillStyle = `rgba(255, 200, 100, ${alpha})`;
+    ctx.fillRect(x, y, size, size);
+  }
+  
+  // Ground
+  const groundY = h * 0.62;
+  const groundColors = ['#1a1510', '#1c1712', '#18130e', '#1e1914'];
+  for (let y = groundY; y < h; y += p) {
+    const colorIndex = Math.floor(((y - groundY) / (h - groundY)) * groundColors.length);
+    ctx.fillStyle = groundColors[Math.min(colorIndex, groundColors.length - 1)];
+    ctx.fillRect(0, y, w, p);
+  }
+  
+  // Ground texture
+  const density = sceneData.location === 'ash' ? 100 : 60;
+  for (let i = 0; i < density; i++) {
+    const x = Math.random() * w;
+    const y = groundY + Math.random() * (h - groundY);
+    const size = Math.random() * 3 + 1;
+    const shade = Math.random() > 0.5 ? '#2a2018' : '#0a0806';
+    ctx.fillStyle = shade;
+    ctx.fillRect(x, y, size, size);
+  }
+  
+  // Background environment
+  drawEnvironment(ctx, w, h, groundY, p, sceneData);
+  
+  // Characters
+  drawCharacter(ctx, w * 0.35, groundY - 10, p, '#f0c477', 'player', sceneData);
+  
+  if (sceneData.action === 'attack' || sceneData.action === 'hit' || sceneData.target) {
+    drawCharacter(ctx, w * 0.65, groundY - 10, p, '#e17055', 'enemy', sceneData);
+  }
+  
+  // Effects
+  drawEffects(ctx, w, h, groundY, p, sceneData);
+  
+  // Bonfire
+  drawBonfire(ctx, w * 0.5, groundY + 15, p);
+}
+
+function drawEnvironment(ctx, w, h, groundY, p, sceneData) {
+  switch(sceneData.location) {
+    case 'gate':
+      ctx.fillStyle = '#2a221a';
+      ctx.fillRect(10, groundY - 60, 8, 60);
+      ctx.fillRect(w - 18, groundY - 50, 8, 50);
+      ctx.fillStyle = '#3a322a';
+      ctx.fillRect(14, groundY - 70, w - 28, 6);
+      ctx.fillStyle = '#1a1410';
+      ctx.fillRect(30, groundY - 68, 12, 4);
+      ctx.fillRect(w - 42, groundY - 58, 12, 4);
+      break;
+    case 'forest':
+      for (let i = 0; i < 6; i++) {
+        const x = 20 + i * (w / 6) + Math.random() * 20;
+        const treeH = 40 + Math.random() * 30;
+        ctx.fillStyle = '#1a2010';
+        ctx.fillRect(x, groundY - treeH, 6, treeH);
+        ctx.fillStyle = '#0a1008';
+        ctx.fillRect(x - 12, groundY - treeH - 8, 30, 12);
+        ctx.fillStyle = '#1a1608';
+        ctx.fillRect(x - 16, groundY - treeH + 10, 10, 3);
+        ctx.fillRect(x + 12, groundY - treeH + 20, 10, 3);
+      }
+      break;
+    case 'crypt':
+      for (let i = 0; i < 4; i++) {
+        const x = 30 + i * (w / 4);
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(x, groundY - 20, 16, 20);
+        ctx.fillStyle = '#222222';
+        ctx.fillRect(x + 2, groundY - 16, 12, 4);
+        ctx.fillStyle = '#0a0a0a';
+        ctx.fillRect(x + 6, groundY - 12, 2, 8);
+      }
+      break;
+    case 'tower':
+      ctx.fillStyle = '#1a1612';
+      ctx.fillRect(w/2 - 30, groundY - 80, 60, 80);
+      ctx.fillStyle = '#2a221a';
+      ctx.fillRect(w/2 - 26, groundY - 76, 52, 10);
+      ctx.fillStyle = '#0a0806';
+      ctx.fillRect(w/2 - 20, groundY - 84, 16, 8);
+      ctx.fillRect(w/2 + 4, groundY - 78, 12, 6);
+      ctx.fillStyle = '#0a0a0a';
+      ctx.fillRect(w/2 - 8, groundY - 44, 16, 20);
+      ctx.fillStyle = 'rgba(255, 200, 100, 0.1)';
+      ctx.fillRect(w/2 - 6, groundY - 42, 12, 16);
+      break;
+    case 'shrine':
+      ctx.fillStyle = '#2a221a';
+      ctx.fillRect(w/2 - 40, groundY - 50, 80, 50);
+      ctx.fillStyle = '#3a322a';
+      ctx.fillRect(w/2 - 30, groundY - 60, 60, 10);
+      ctx.fillStyle = '#1a1410';
+      ctx.fillRect(w/2 - 20, groundY - 70, 40, 10);
+      ctx.fillStyle = 'rgba(255, 200, 100, 0.2)';
+      ctx.fillRect(w/2 - 8, groundY - 40, 16, 16);
+      break;
+    case 'marsh':
+      for (let i = 0; i < 20; i++) {
+        const x = Math.random() * w;
+        const y = groundY - 10 - Math.random() * 30;
+        const ww = 20 + Math.random() * 40;
+        ctx.fillStyle = `rgba(100, 120, 100, ${Math.random() * 0.1})`;
+        ctx.fillRect(x, y, ww, 10);
+      }
+      for (let i = 0; i < 5; i++) {
+        const x = Math.random() * w;
+        const y = groundY + 10 + Math.random() * 20;
+        ctx.fillStyle = 'rgba(30, 40, 50, 0.3)';
+        ctx.fillRect(x, y, 20 + Math.random() * 30, 8 + Math.random() * 10);
+      }
+      break;
+    case 'keep':
+      ctx.fillStyle = '#1a1814';
+      ctx.fillRect(0, groundY - 40, 40, 40);
+      ctx.fillRect(w - 40, groundY - 50, 40, 50);
+      ctx.fillStyle = '#2a221a';
+      ctx.fillRect(0, groundY - 44, 40, 4);
+      ctx.fillRect(w - 40, groundY - 54, 40, 4);
+      break;
+    default:
+      ctx.fillStyle = '#2a221a';
+      ctx.fillRect(10, groundY - 30, 20, 30);
+      ctx.fillRect(w - 30, groundY - 40, 20, 40);
+      ctx.fillStyle = '#1a1410';
+      ctx.fillRect(14, groundY - 26, 12, 8);
+      ctx.fillRect(w - 26, groundY - 36, 12, 8);
+  }
+}
+
+function drawCharacter(ctx, x, y, p, color, type, sceneData) {
+  const isPlayer = type === 'player';
+  const isAttacking = sceneData.action === 'attack' || sceneData.action === 'hit';
+  const isSearching = sceneData.action === 'search';
+  const isHealing = sceneData.action === 'heal';
+  const isStealth = sceneData.action === 'stealth';
+  const isFleeing = sceneData.action === 'flee';
+  const isTalking = sceneData.action === 'talk';
+  const isObserving = sceneData.action === 'observe';
+  
+  // Body
+  ctx.fillStyle = color;
+  ctx.fillRect(x - 8, y - 28, 16, 28);
+  
+  // Head
+  ctx.fillStyle = '#d4a87a';
+  ctx.fillRect(x - 7, y - 36, 14, 10);
+  
+  // Hair
+  const hairColor = isPlayer ? '#6a4a2a' : '#1a0a0a';
+  ctx.fillStyle = hairColor;
+  if (isPlayer) {
+    ctx.fillRect(x - 8, y - 40, 16, 6);
+    ctx.fillRect(x - 10, y - 36, 4, 4);
+    ctx.fillRect(x + 6, y - 36, 4, 4);
+  } else {
+    ctx.fillRect(x - 8, y - 40, 16, 6);
+  }
+  
+  // Eyes
+  const eyeColor = isPlayer ? '#aabbcc' : '#ff6b35';
+  ctx.fillStyle = eyeColor;
+  if (isStealth) {
+    ctx.fillRect(x - 5, y - 32, 3, 2);
+    ctx.fillRect(x + 2, y - 32, 3, 2);
+  } else if (isObserving) {
+    ctx.fillRect(x - 6, y - 34, 4, 4);
+    ctx.fillRect(x + 2, y - 34, 4, 4);
+  } else {
+    ctx.fillRect(x - 5, y - 34, 3, 3);
+    ctx.fillRect(x + 2, y - 34, 3, 3);
+  }
+  
+  // Armor/Clothing
+  if (isPlayer) {
+    ctx.fillStyle = '#8a7a5a';
+    ctx.fillRect(x - 6, y - 22, 12, 4);
+    ctx.fillRect(x - 8, y - 14, 16, 4);
+    ctx.fillStyle = '#5a4a2a';
+    ctx.fillRect(x - 8, y - 6, 16, 3);
+  } else {
+    ctx.fillStyle = '#4a3a2a';
+    ctx.fillRect(x - 8, y - 24, 16, 4);
+    ctx.fillRect(x - 10, y - 14, 20, 4);
+    ctx.fillStyle = 'rgba(255, 100, 30, 0.3)';
+    ctx.fillRect(x - 4, y - 20, 8, 8);
+  }
+  
+  // Arms
+  ctx.fillStyle = '#d4a87a';
+  if (isAttacking) {
+    ctx.fillRect(x - 16, y - 28, 6, 12);
+    ctx.fillRect(x + 10, y - 28, 6, 12);
+    ctx.fillStyle = '#b8a88a';
+    ctx.fillRect(x + 14, y - 44, 3, 24);
+    ctx.fillStyle = '#8a7a6a';
+    ctx.fillRect(x + 12, y - 46, 7, 4);
+  } else if (isSearching) {
+    ctx.fillRect(x - 18, y - 8, 12, 4);
+    ctx.fillRect(x + 6, y - 8, 12, 4);
+  } else if (isHealing) {
+    ctx.fillRect(x - 14, y - 24, 6, 8);
+    ctx.fillRect(x + 8, y - 24, 6, 8);
+    ctx.fillStyle = 'rgba(100, 255, 150, 0.2)';
+    ctx.fillRect(x - 16, y - 30, 32, 16);
+  } else if (isStealth) {
+    ctx.fillRect(x - 14, y - 16, 6, 4);
+    ctx.fillRect(x + 8, y - 16, 6, 4);
+  } else if (isFleeing) {
+    ctx.fillRect(x - 18, y - 20, 6, 6);
+    ctx.fillRect(x + 12, y - 20, 6, 6);
+  } else if (isTalking) {
+    ctx.fillRect(x - 14, y - 20, 6, 8);
+    ctx.fillRect(x + 8, y - 18, 6, 6);
+  } else if (isObserving) {
+    ctx.fillRect(x - 16, y - 22, 6, 6);
+    ctx.fillRect(x + 8, y - 18, 6, 6);
+    ctx.fillStyle = '#8a7a5a';
+    ctx.fillRect(x + 12, y - 32, 12, 6);
+  } else {
+    ctx.fillRect(x - 14, y - 16, 6, 6);
+    ctx.fillRect(x + 8, y - 16, 6, 6);
+    if (isPlayer) {
+      ctx.fillStyle = '#b8a88a';
+      ctx.fillRect(x + 12, y - 12, 3, 16);
+    }
+  }
+  
+  // Legs
+  ctx.fillStyle = isPlayer ? '#4a3a2a' : '#3a2a1a';
+  if (isStealth) {
+    ctx.fillRect(x - 6, y + 4, 5, 8);
+    ctx.fillRect(x + 1, y + 4, 5, 8);
+  } else if (isFleeing) {
+    ctx.fillRect(x - 8, y + 2, 5, 10);
+    ctx.fillRect(x + 3, y + 2, 5, 10);
+  } else {
+    ctx.fillRect(x - 6, y, 5, 12);
+    ctx.fillRect(x + 1, y, 5, 12);
+  }
+  
+  // Boots
+  ctx.fillStyle = isPlayer ? '#3a2a1a' : '#2a1a0a';
+  if (isStealth) {
+    ctx.fillRect(x - 8, y + 10, 7, 2);
+    ctx.fillRect(x + 1, y + 10, 7, 2);
+  } else {
+    ctx.fillRect(x - 8, y + 10, 7, 4);
+    ctx.fillRect(x + 1, y + 10, 7, 4);
+  }
+  
+  // Cape (player only)
+  if (isPlayer) {
+    ctx.fillStyle = 'rgba(100, 60, 40, 0.5)';
+    if (isFleeing) {
+      ctx.fillRect(x - 16, y - 10, 10, 20);
+      ctx.fillRect(x + 6, y - 10, 10, 20);
+    } else {
+      ctx.fillRect(x - 12, y - 10, 8, 16);
+      ctx.fillRect(x + 4, y - 10, 8, 16);
+    }
+  }
+}
+
+function drawEffects(ctx, w, h, groundY, p, sceneData) {
+  const action = sceneData.action;
+  
+  if (action === 'attack' || action === 'hit') {
+    const tx = w * 0.65;
+    const ty = groundY - 30;
+    const colors = ['#ffd700', '#ff8c00', '#ff4500', '#ffffff'];
+    for (let i = 0; i < 25; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * 35 + 5;
+      const size = Math.random() * 4 + 1;
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      ctx.fillStyle = color;
+      ctx.globalAlpha = Math.random() * 0.8 + 0.2;
+      ctx.fillRect(
+        tx + Math.cos(angle) * dist,
+        ty + Math.sin(angle) * dist,
+        size, size
+      );
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(255, 255, 200, 0.15)';
+    ctx.beginPath();
+    ctx.arc(tx, ty, 20, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  
+  if (action === 'search') {
+    const px = w * 0.35;
+    const py = groundY - 5;
+    for (let i = 0; i < 12; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * 20 + 5;
+      const size = Math.random() * 3 + 1;
+      ctx.fillStyle = `rgba(200, 230, 255, ${Math.random() * 0.5 + 0.1})`;
+      ctx.fillRect(
+        px + Math.cos(angle) * dist,
+        py + Math.sin(angle) * dist - 10,
+        size, size
+      );
+    }
+    ctx.fillStyle = 'rgba(200, 230, 255, 0.05)';
+    ctx.beginPath();
+    ctx.arc(px, py - 10, 25, 0, Math.PI * 2);
+    ctx.fill();
+    if (sceneData.loot) {
+      ctx.fillStyle = 'rgba(255, 215, 0, 0.15)';
+      ctx.beginPath();
+      ctx.arc(px, py - 10, 30, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  
+  if (action === 'heal') {
+    const px = w * 0.35;
+    const py = groundY - 20;
+    for (let i = 0; i < 15; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * 20 + 5;
+      const size = Math.random() * 3 + 1;
+      ctx.fillStyle = `rgba(100, 255, 150, ${Math.random() * 0.5 + 0.1})`;
+      ctx.fillRect(
+        px + Math.cos(angle) * dist,
+        py + Math.sin(angle) * dist,
+        size, size
+      );
+    }
+    ctx.fillStyle = 'rgba(100, 255, 150, 0.08)';
+    ctx.beginPath();
+    ctx.arc(px, py, 30, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  
+  if (action === 'stealth') {
+    const px = w * 0.35;
+    const py = groundY - 5;
+    ctx.fillStyle = 'rgba(100, 100, 150, 0.1)';
+    ctx.fillRect(px - 20, py - 20, 40, 30);
+    ctx.fillStyle = 'rgba(100, 100, 150, 0.05)';
+    ctx.fillRect(px - 30, py - 30, 60, 40);
+  }
+  
+  if (action === 'flee') {
+    const px = w * 0.35;
+    const py = groundY;
+    for (let i = 0; i < 8; i++) {
+      const x = px - 20 - Math.random() * 20;
+      const y = py - 5 + Math.random() * 10;
+      const size = Math.random() * 6 + 2;
+      ctx.fillStyle = `rgba(150, 140, 120, ${Math.random() * 0.3 + 0.1})`;
+      ctx.fillRect(x, y, size, size);
+    }
+  }
+  
+  if (action === 'observe') {
+    const px = w * 0.35;
+    const py = groundY - 30;
+    ctx.fillStyle = 'rgba(200, 200, 255, 0.05)';
+    ctx.beginPath();
+    ctx.arc(px, py, 40, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(200, 200, 255, 0.2)';
+    ctx.fillRect(px - 4, py - 6, 8, 12);
+    ctx.fillStyle = 'rgba(100, 100, 200, 0.3)';
+    ctx.fillRect(px - 2, py - 4, 4, 8);
+  }
+}
+
+function drawBonfire(ctx, x, y, p) {
+  // Wood logs
+  ctx.fillStyle = '#3a2a1a';
+  ctx.fillRect(x - 20, y - 4, 40, 8);
+  ctx.fillStyle = '#4a3a2a';
+  ctx.fillRect(x - 24, y + 2, 48, 6);
+  ctx.fillRect(x - 16, y - 8, 32, 6);
+  
+  // Fire glow
+  ctx.fillStyle = 'rgba(255, 150, 50, 0.08)';
+  ctx.beginPath();
+  ctx.arc(x, y - 10, 50, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Main fire
+  const flicker = Math.random() * 0.2 + 0.8;
+  ctx.fillStyle = `rgba(255, 180, 50, ${0.5 * flicker})`;
+  ctx.fillRect(x - 14, y - 30 * flicker, 28, 26);
+  ctx.fillStyle = `rgba(255, 100, 20, ${0.3 * flicker})`;
+  ctx.fillRect(x - 8, y - 40 * flicker, 16, 22);
+  ctx.fillStyle = `rgba(255, 60, 10, ${0.2 * flicker})`;
+  ctx.fillRect(x - 4, y - 48 * flicker, 8, 16);
+  
+  // Embers
+  for (let i = 0; i < 10; i++) {
+    const ex = x + (Math.random() - 0.5) * 30;
+    const ey = y - 10 - Math.random() * 35;
+    const size = Math.random() * 3 + 1;
+    const alpha = Math.random() * 0.5 + 0.2;
+    ctx.fillStyle = `rgba(255, 200, 100, ${alpha})`;
+    ctx.fillRect(ex, ey, size, size);
+  }
+}
+
+// ---------- IMAGE PROMPT BUILDER ----------
+function buildImagePrompt(sceneData) {
+  const { location, action, mood, actor, target } = sceneData;
+  
+  const locationMap = {
+    bonfire: 'campfire in ruins',
+    gate: 'broken stone gate',
+    forest: 'dark twisted forest',
+    shrine: 'ancient shrine',
+    crypt: 'dark stone crypt',
+    tower: 'shattered tower',
+    marsh: 'misty marsh',
+    keep: 'ruined keep',
+    ash: 'ash wasteland'
+  };
+  
+  const actionMap = {
+    attack: 'fighting a monster',
+    hit: 'striking an enemy',
+    heal: 'being healed with light',
+    search: 'searching the ashes',
+    stealth: 'hiding in shadows',
+    flee: 'running away',
+    talk: 'talking',
+    observe: 'watching carefully',
+    neutral: 'standing'
+  };
+  
+  const loc = locationMap[location] || 'dark wasteland';
+  const act = actionMap[action] || 'standing';
+  
+  return `${actor} ${act} at ${loc}`;
+}
+
+// ---------- AI IMAGE GENERATION ----------
+let isGeneratingImage = false;
+let lastImagePrompt = '';
+
+async function generateSceneImage(sceneData) {
+  if (isGeneratingImage) return;
+  
+  const container = $('pixel-scene');
+  const loadingEl = $('pixel-loading');
+  const imageEl = $('pixel-image');
+  const canvasEl = $('pixel-canvas');
+  
+  if (!container || !sceneData) return;
+  
+  if (loadingEl) loadingEl.classList.remove('hidden');
+  if (imageEl) imageEl.classList.add('hidden');
+  
+  isGeneratingImage = true;
+  
+  try {
+    const prompt = buildImagePrompt(sceneData);
+    
+    if (prompt === lastImagePrompt && imageEl && !imageEl.classList.contains('hidden')) {
+      if (loadingEl) loadingEl.classList.add('hidden');
+      isGeneratingImage = false;
+      return;
+    }
+    
+    lastImagePrompt = prompt;
+    
+    const { data, error } = await sb.functions.invoke('generate-image', {
+      body: { 
+        prompt: prompt,
+        location: sceneData.location,
+        action: sceneData.action,
+        mood: sceneData.mood,
+      }
+    });
+    
+    if (error) throw error;
+    
+    if (data.imageUrl) {
+      if (imageEl) {
+        imageEl.src = data.imageUrl;
+        imageEl.classList.remove('hidden');
+        imageEl.style.display = 'block';
+        imageEl.onload = () => {
+          console.log('✅ Image loaded successfully');
+          if (loadingEl) loadingEl.classList.add('hidden');
+        };
+        imageEl.onerror = () => {
+          console.warn('❌ Image failed to load, using fallback');
+          useFallbackRenderer(canvasEl, sceneData, imageEl);
+          if (loadingEl) loadingEl.classList.add('hidden');
+        };
+      }
+      if (canvasEl) canvasEl.classList.add('hidden');
+      
+    } else {
+      // Use fallback renderer
+      if (canvasEl) {
+        canvasEl.classList.remove('hidden');
+        renderFallbackPixelScene(canvasEl, sceneData);
+      }
+      if (imageEl) imageEl.classList.add('hidden');
+      if (loadingEl) loadingEl.classList.add('hidden');
+    }
+    
+  } catch (error) {
+    console.warn('Image generation failed:', error);
+    useFallbackRenderer(canvasEl, sceneData, imageEl);
+    if (loadingEl) loadingEl.classList.add('hidden');
+  }
+  
+  isGeneratingImage = false;
+}
+
+function useFallbackRenderer(canvasEl, sceneData, imageEl) {
+  if (canvasEl) {
+    canvasEl.classList.remove('hidden');
+    renderFallbackPixelScene(canvasEl, sceneData);
+  }
+  if (imageEl) imageEl.classList.add('hidden');
+  
+  const resultEl = $('pixel-result');
+  if (resultEl) {
+    resultEl.textContent = '✦ Pixel render';
+    resultEl.className = 'pixel-result';
+  }
+}
+
+async function updatePixelScene() {
+  const container = $('pixel-scene');
+  if (!container || !latestSession) return;
+  
+  const history = latestSession.story_history || [];
+  if (history.length === 0) {
+    container.classList.add('hidden');
+    return;
+  }
+  
+  const last = history[history.length - 1];
+  container.classList.remove('hidden');
+  
+  const sceneData = parseSceneFromStory(last, latestSession);
+  
+  // Update the overlay text
+  updatePixelOverlay(last);
+  
+  // Try AI image generation, fallback to pixel renderer
+  const canvasEl = $('pixel-canvas');
+  const imageEl = $('pixel-image');
+  const loadingEl = $('pixel-loading');
+  
+  // Show loading
+  if (loadingEl) loadingEl.classList.remove('hidden');
+  
+  // Try to generate AI image
+  await generateSceneImage(sceneData);
+  
+  // If image didn't load (still hidden), use fallback
+  if (imageEl && imageEl.classList.contains('hidden') && canvasEl) {
+    canvasEl.classList.remove('hidden');
+    renderFallbackPixelScene(canvasEl, sceneData);
+    console.log('✅ Fallback pixel scene rendered for:', sceneData.action, 'at', sceneData.location);
+    if (loadingEl) loadingEl.classList.add('hidden');
+  }
+  
+  // Flash the container
+  container.classList.remove('flash');
+  void container.offsetWidth;
+  container.classList.add('flash');
+}
+
 // ---------- Render Game ----------
 function renderGame() {
   if (!latestSession) return;
   renderAshenMap();
+  updatePixelScene();
   renderHallOfDead();
 
   // Rooms 0 (Ash) and 3 (Shrine) in the cycle are safe zones — kept
@@ -1482,7 +2275,8 @@ function renderGame() {
   const narrative = (latestSession.story_narrative || '').trim();
   const isStuck = latestSession.status === 'active' &&
     !choices.length &&
-    (narrative === 'The story is being written…' || narrative.startsWith('A new tale begins'));
+    (narrative === 'The story is being written…' || narrative.startsWith('A new tale begins')) &&
+    !isGeneratingStory;
 
   if (turnEl) {
     if (latestSession.status === 'completed') {
@@ -1610,6 +2404,11 @@ function renderGame() {
 
 // ---------- Use Item ----------
 async function useItem(itemId) {
+  if (isGeneratingStory) {
+    toast('Story is already being generated...', 2000);
+    return;
+  }
+  
   const choicesEl = $('choices');
   const inventoryList = $('inventory-list');
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
@@ -1617,33 +2416,50 @@ async function useItem(itemId) {
 
   const statusEl = $('story-status');
   if (statusEl) statusEl.textContent = 'Using item…';
+  
+  isGeneratingStory = true;
 
-  const { data, error } = await sb.functions.invoke('generate-story', {
-    body: { sessionId: currentSessionId, userId: currentUser.uid, itemId },
-  });
+  try {
+    const { data, error } = await sb.functions.invoke('generate-story', {
+      body: { sessionId: currentSessionId, userId: currentUser.uid, itemId },
+    });
 
-  if (error) {
-    const message = await extractFunctionError(error, data);
-    console.error('useItem failed:', message, error);
-    if (statusEl) statusEl.textContent = 'Could not use that item — please try again.';
-    toast('Item use failed: ' + message, 4000, 'error');
+    if (error) {
+      const message = await extractFunctionError(error, data);
+      console.error('useItem failed:', message, error);
+      if (statusEl) statusEl.textContent = 'Could not use that item — please try again.';
+      toast('Item use failed: ' + message, 4000, 'error');
+    }
+  } finally {
+    isGeneratingStory = false;
   }
 }
 
 // ---------- Submit Choice (turn-based — only the acting player calls this) ----------
 async function submitChoice(choiceIndex) {
+  if (isGeneratingStory) {
+    toast('Story is already being generated...', 2000);
+    return;
+  }
+  
   const choicesEl = $('choices');
   const statusEl = $('story-status');
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
   if (statusEl) statusEl.textContent = 'The storyteller is weaving…';
-
-  const { data, error } = await sb.functions.invoke('generate-story', {
-    body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
-  });
-  if (error) {
-    console.error('submitChoice failed:', error);
-    if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
-    toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+  
+  isGeneratingStory = true;
+  
+  try {
+    const { data, error } = await sb.functions.invoke('generate-story', {
+      body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
+    });
+    if (error) {
+      console.error('submitChoice failed:', error);
+      if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
+      toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+    }
+  } finally {
+    isGeneratingStory = false;
   }
 }
 
@@ -1663,14 +2479,17 @@ async function startVote() {
 }
 
 async function castVote(choiceIndex) {
+  if (isGeneratingStory) {
+    toast('Story is already being generated...', 2000);
+    return;
+  }
+  
   const current = (latestSession.vote_state && latestSession.vote_state.active)
     ? latestSession.vote_state
     : { active: true, votes: {} };
   const votes = { ...current.votes, [currentUser.uid]: choiceIndex };
   const alivePlayers = latestPlayers.filter(p => p.is_alive);
 
-  // Show the updated count immediately instead of waiting on the
-  // realtime round-trip back from the database.
   latestSession.vote_state = { active: true, votes };
   renderGame();
 
@@ -1685,12 +2504,6 @@ async function castVote(choiceIndex) {
 
   if (Object.keys(votes).length < alivePlayers.length) return;
 
-  // Everyone alive has voted — tally and submit the majority choice.
-  // (If two people happen to cast the very last vote at the exact
-  // same instant, both browsers could reach this point together and
-  // both call generate-story — a rare, low-stakes race that existed
-  // in the original voting code too; not worth a distributed lock for
-  // a casual game.)
   const tally = {};
   Object.values(votes).forEach(v => { tally[v] = (tally[v] || 0) + 1; });
   const winner = Number(Object.keys(tally).reduce((best, key) =>
@@ -1700,14 +2513,20 @@ async function castVote(choiceIndex) {
   const statusEl = $('story-status');
   if (statusEl) statusEl.textContent = 'The party has agreed. The storyteller is weaving…';
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
+  
+  isGeneratingStory = true;
 
-  const { data, error } = await sb.functions.invoke('generate-story', {
-    body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex: winner },
-  });
-  if (error) {
-    console.error('submitChoice (vote) failed:', error);
-    if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
-    toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+  try {
+    const { data, error } = await sb.functions.invoke('generate-story', {
+      body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex: winner },
+    });
+    if (error) {
+      console.error('submitChoice (vote) failed:', error);
+      if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
+      toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
+    }
+  } finally {
+    isGeneratingStory = false;
   }
 }
 
