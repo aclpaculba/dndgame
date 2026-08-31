@@ -2016,13 +2016,33 @@ async function generateSceneImage(sceneData) {
     
     if (error) throw error;
     
+    // --- CHECK FOR FALLBACK ---
+    if (data.fallback || !data.imageUrl) {
+      console.log('🔄 Using fallback pixel renderer (no AI image)');
+      if (canvasEl) {
+        canvasEl.classList.remove('hidden');
+        renderFallbackPixelScene(canvasEl, sceneData);
+      }
+      if (imageEl) imageEl.classList.add('hidden');
+      if (loadingEl) loadingEl.classList.add('hidden');
+      
+      const resultEl = $('pixel-result');
+      if (resultEl) {
+        resultEl.textContent = '✦ Pixel render';
+        resultEl.className = 'pixel-result';
+      }
+      isGeneratingImage = false;
+      return;
+    }
+    
+    // --- DISPLAY AI IMAGE ---
     if (data.imageUrl) {
       if (imageEl) {
         imageEl.src = data.imageUrl;
         imageEl.classList.remove('hidden');
         imageEl.style.display = 'block';
         imageEl.onload = () => {
-          console.log('✅ Image loaded successfully');
+          console.log('✅ Image loaded successfully', data.usedHF ? '(Hugging Face)' : '');
           if (loadingEl) loadingEl.classList.add('hidden');
         };
         imageEl.onerror = () => {
@@ -2032,15 +2052,6 @@ async function generateSceneImage(sceneData) {
         };
       }
       if (canvasEl) canvasEl.classList.add('hidden');
-      
-    } else {
-      // Use fallback renderer
-      if (canvasEl) {
-        canvasEl.classList.remove('hidden');
-        renderFallbackPixelScene(canvasEl, sceneData);
-      }
-      if (imageEl) imageEl.classList.add('hidden');
-      if (loadingEl) loadingEl.classList.add('hidden');
     }
     
   } catch (error) {
