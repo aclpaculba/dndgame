@@ -1942,44 +1942,49 @@ function drawBonfire(ctx, x, y, p) {
 }
 
 // ---------- IMAGE PROMPT BUILDER ----------
-function buildImagePrompt(sceneData) {
-  const { location, action, mood, actor, target } = sceneData;
+function buildImagePrompt(sceneData, storyText) {
+  // Use the actual story text as the prompt
+  // Clean it up for the image generator
+  let prompt = storyText || '';
   
-  const locationMap = {
-    bonfire: 'campfire in ruins',
-    gate: 'broken stone gate',
-    forest: 'dark twisted forest',
-    shrine: 'ancient shrine',
-    crypt: 'dark stone crypt',
-    tower: 'shattered tower',
-    marsh: 'misty marsh',
-    keep: 'ruined keep',
-    ash: 'ash wasteland'
-  };
+  // If no story text, fallback to scene data
+  if (!prompt || prompt.length < 10) {
+    const { location, action, mood, actor, target } = sceneData;
+    const locationMap = {
+      bonfire: 'campfire in ruins',
+      gate: 'broken stone gate',
+      forest: 'dark twisted forest',
+      shrine: 'ancient shrine',
+      crypt: 'dark stone crypt',
+      tower: 'shattered tower',
+      marsh: 'misty marsh',
+      keep: 'ruined keep',
+      ash: 'ash wasteland'
+    };
+    const actionMap = {
+      attack: 'fighting a monster',
+      hit: 'striking an enemy',
+      heal: 'being healed with light',
+      search: 'searching the ashes',
+      stealth: 'hiding in shadows',
+      flee: 'running away',
+      talk: 'talking',
+      observe: 'watching carefully',
+      neutral: 'standing'
+    };
+    prompt = `${actor} ${actionMap[action] || 'standing'} at ${locationMap[location] || 'dark wasteland'}`;
+  }
   
-  const actionMap = {
-    attack: 'fighting a monster',
-    hit: 'striking an enemy',
-    heal: 'being healed with light',
-    search: 'searching the ashes',
-    stealth: 'hiding in shadows',
-    flee: 'running away',
-    talk: 'talking',
-    observe: 'watching carefully',
-    neutral: 'standing'
-  };
-  
-  const loc = locationMap[location] || 'dark wasteland';
-  const act = actionMap[action] || 'standing';
-  
-  return `${actor} ${act} at ${loc}`;
+  // Add pixel art style instructions
+  return `pixel art style, 16-bit retro game scene, dark fantasy rpg, ${prompt}, pixelated, low resolution, detailed pixel art, grim atmosphere`;
 }
 
+// ---------- AI IMAGE GENERATION ----------
 // ---------- AI IMAGE GENERATION ----------
 let isGeneratingImage = false;
 let lastImagePrompt = '';
 
-async function generateSceneImage(sceneData) {
+async function generateSceneImage(sceneData, storyText) {
   if (isGeneratingImage) return;
   
   const container = $('pixel-scene');
@@ -1995,7 +2000,8 @@ async function generateSceneImage(sceneData) {
   isGeneratingImage = true;
   
   try {
-    const prompt = buildImagePrompt(sceneData);
+    // Build prompt from the actual story text
+    const prompt = buildImagePrompt(sceneData, storyText);
     
     if (prompt === lastImagePrompt && imageEl && !imageEl.classList.contains('hidden')) {
       if (loadingEl) loadingEl.classList.add('hidden');
@@ -2011,13 +2017,14 @@ async function generateSceneImage(sceneData) {
         location: sceneData.location,
         action: sceneData.action,
         mood: sceneData.mood,
+        storyText: storyText || '', // Pass the story text to the Edge Function
       }
     });
     
     if (error) throw error;
     
-    // --- CHECK FOR FALLBACK ---
-    if (data.fallback || !data.imageUrl) {
+    // Check for fallback
+    if (data.fallback === true || !data.imageUrl) {
       console.log('🔄 Using fallback pixel renderer (no AI image)');
       if (canvasEl) {
         canvasEl.classList.remove('hidden');
@@ -2035,14 +2042,14 @@ async function generateSceneImage(sceneData) {
       return;
     }
     
-    // --- DISPLAY AI IMAGE ---
+    // Display AI image
     if (data.imageUrl) {
       if (imageEl) {
         imageEl.src = data.imageUrl;
         imageEl.classList.remove('hidden');
         imageEl.style.display = 'block';
         imageEl.onload = () => {
-          console.log('✅ Image loaded successfully', data.usedHF ? '(Hugging Face)' : '');
+          console.log('✅ Image loaded successfully', data.usedModel || '');
           if (loadingEl) loadingEl.classList.add('hidden');
         };
         imageEl.onerror = () => {
@@ -2092,29 +2099,16 @@ async function updatePixelScene() {
   
   const sceneData = parseSceneFromStory(last, latestSession);
   
-  // Update the overlay text
+  // Get the story narrative text
+  const storyText = latestSession.story_narrative || '';
+  // Combine with the last action outcome for more context
+  const fullStoryText = `${storyText} ${last.outcome || ''}`;
+  
   updatePixelOverlay(last);
   
-  // Try AI image generation, fallback to pixel renderer
-  const canvasEl = $('pixel-canvas');
-  const imageEl = $('pixel-image');
-  const loadingEl = $('pixel-loading');
+  // Generate image with the story text
+  await generateSceneImage(sceneData, fullStoryText);
   
-  // Show loading
-  if (loadingEl) loadingEl.classList.remove('hidden');
-  
-  // Try to generate AI image
-  await generateSceneImage(sceneData);
-  
-  // If image didn't load (still hidden), use fallback
-  if (imageEl && imageEl.classList.contains('hidden') && canvasEl) {
-    canvasEl.classList.remove('hidden');
-    renderFallbackPixelScene(canvasEl, sceneData);
-    console.log('✅ Fallback pixel scene rendered for:', sceneData.action, 'at', sceneData.location);
-    if (loadingEl) loadingEl.classList.add('hidden');
-  }
-  
-  // Flash the container
   container.classList.remove('flash');
   void container.offsetWidth;
   container.classList.add('flash');
