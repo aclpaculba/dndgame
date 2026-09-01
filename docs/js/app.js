@@ -1922,6 +1922,8 @@ async function updatePixelScene() {
 // ---------- Render Game ----------
 function renderGame() {
   if (!latestSession) return;
+  renderAshenMap();
+  renderHallOfDead();
 
   const SAFE_ZONE_ROOM_SLOTS = new Set([0, 3]);
   const currentRoomIdx = Number.isInteger(latestSession?.current_room_index) ? latestSession.current_room_index : 0;
