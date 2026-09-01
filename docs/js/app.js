@@ -1917,7 +1917,12 @@ async function updatePixelScene() {
   container.classList.remove('hidden');
   
   updatePixelOverlay(last);
-  
+}
+
+// ---------- Render Game ----------
+function renderGame() {
+  if (!latestSession) return;
+
   const SAFE_ZONE_ROOM_SLOTS = new Set([0, 3]);
   const currentRoomIdx = Number.isInteger(latestSession?.current_room_index) ? latestSession.current_room_index : 0;
   const inSafeZoneNow = SAFE_ZONE_ROOM_SLOTS.has(currentRoomIdx % 8);
@@ -2090,7 +2095,23 @@ if (choicesEl) {
   } else if (!choices.length || latestSession.status !== 'active') {
     choicesEl.innerHTML = '';
   } else if (voteState) {
-    // ... vote rendering
+    const votes = voteState.votes || {};
+    const hasVoted = Object.prototype.hasOwnProperty.call(votes, currentUser.uid);
+    choicesEl.innerHTML = choices.map((c, i) => {
+      const count = Object.values(votes).filter(v => v === i).length;
+      return `
+        <button class="choice-btn" data-vote="${i}" ${(hasVoted || !iAmAlive) ? 'disabled' : ''}>
+          ${escapeHtml(c)}
+          <span class="vote-count">${count} vote${count === 1 ? '' : 's'}</span>
+        </button>
+      `;
+    }).join('');
+    choicesEl.querySelectorAll('[data-vote]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        sounds.playClick();
+        castVote(Number(btn.dataset.vote));
+      });
+    });
   } else {
     choicesEl.innerHTML = choices.map((c, i) => `
       <button class="choice-btn" data-choice="${i}" ${isMyTurn ? '' : 'disabled'}>
