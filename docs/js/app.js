@@ -75,7 +75,8 @@ let autoResetTimer = null;
 let pendingTableStartSessionId = null;
 let isGeneratingStory = false;  
 let refreshTimeout = null;      
-let lastStoryVersion = '';      
+let lastStoryVersion = '';
+let lastImageNarrative = '';
 
 const STORAGE_KEY = 'lastEmberUser';
 const CHAR_STORAGE_KEY = 'lastEmberCharacter';
@@ -1014,7 +1015,24 @@ async function refreshGameState() {
     latestSession = session;
     latestPlayers = players || [];
     latestCharactersById = new Map();
+    
+    // Only regenerate image if the narrative actually changed
+    const narrativeChanged = (session.story_narrative || '') !== lastImageNarrative;
+    
     renderGame();
+    
+    // Generate image only if narrative changed (not for intermediate player updates)
+    if (narrativeChanged && (latestSession.story_history || []).length > 0) {
+      lastImageNarrative = session.story_narrative || '';
+      const last = latestSession.story_history[latestSession.story_history.length - 1];
+      if (last) {
+        const sceneData = parseSceneFromStory(last, latestSession);
+        await generateSceneImage(sceneData);
+      }
+    } else if (narrativeChanged) {
+      // Update the marker even if there's no history to prevent re-attempts
+      lastImageNarrative = session.story_narrative || '';
+    }
     
     if (latestSession.status === 'completed') {
       sounds.playWin();
@@ -1898,24 +1916,8 @@ async function updatePixelScene() {
   const last = history[history.length - 1];
   container.classList.remove('hidden');
   
-  const sceneData = parseSceneFromStory(last, latestSession);
-  
   updatePixelOverlay(last);
   
-  await generateSceneImage(sceneData);
-  
-  container.classList.remove('flash');
-  void container.offsetWidth;
-  container.classList.add('flash');
-}
-
-// ---------- Render Game ----------
-function renderGame() {
-  if (!latestSession) return;
-  renderAshenMap();
-  updatePixelScene(); 
-  renderHallOfDead();
-
   const SAFE_ZONE_ROOM_SLOTS = new Set([0, 3]);
   const currentRoomIdx = Number.isInteger(latestSession?.current_room_index) ? latestSession.current_room_index : 0;
   const inSafeZoneNow = SAFE_ZONE_ROOM_SLOTS.has(currentRoomIdx % 8);
