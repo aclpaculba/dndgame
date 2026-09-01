@@ -1379,6 +1379,18 @@ async function generateSceneImage(sceneData) {
       }
       if (canvasEl) canvasEl.classList.add('hidden');
       
+    } else if (data.fallback) {
+      // The server explicitly asked for the canvas fallback (Replicate
+      // and Pollinations both came back empty) — this is an expected,
+      // handled case, not an error, so it doesn't need a console warning.
+      if (canvasEl) {
+        canvasEl.classList.remove('hidden');
+        renderFallbackPixelScene(canvasEl, sceneData);
+      }
+      if (imageEl) imageEl.classList.add('hidden');
+      isGeneratingImage = false;
+      if (loadingEl) loadingEl.classList.add('hidden');
+      return;
     } else {
       throw new Error('No image URL returned');
     }
