@@ -1,3 +1,4 @@
+// ============================================================
 // Stackfall — Modern Client Application Logic
 // With Character Creation, Stats System, and Realtime Fixes
 // ============================================================
@@ -73,10 +74,6 @@ let characters = [];
 let latestCharactersById = new Map();
 let autoResetTimer = null;
 let pendingTableStartSessionId = null;
-let isGeneratingStory = false;  
-let refreshTimeout = null;      
-let lastStoryVersion = '';
-let lastImageNarrative = '';
 
 const STORAGE_KEY = 'lastEmberUser';
 const CHAR_STORAGE_KEY = 'lastEmberCharacter';
@@ -132,9 +129,15 @@ function toast(msg, ms = 3200, type = 'info') {
   toast._t = setTimeout(() => t.classList.add('hidden'), ms);
 }
 
+// preferred_ui_mode still stores 'animated' / 'simple' in the database
+// (unchanged, so no migration needed) but the meaning has changed: it
+// now toggles a "plain" mode that strips all styling down to raw,
+// unstyled black-and-white HTML — no colors, no rounded corners, no
+// gradients, no shadows, no animation — rather than a fancier look.
 function applyTheme(mode) {
   const isPlain = mode === 'animated';
   document.body.classList.toggle('theme-plain', isPlain);
+
   const label = isPlain ? 'Plain mode: On' : 'Plain mode: Off';
   const t1 = $('ui-mode-toggle');
   const t2 = $('ui-mode-toggle-2');
@@ -211,6 +214,7 @@ async function loadCharacters() {
     characters = data || [];
     renderCharacterList();
     
+    // Check if there's a stored character selection
     const savedCharId = localStorage.getItem(CHAR_STORAGE_KEY);
     if (savedCharId && characters.some(c => c.id === savedCharId)) {
       currentCharacter = characters.find(c => c.id === savedCharId);
@@ -241,6 +245,7 @@ async function saveCharacter(characterData) {
     toast(`${data.name} has been created!`, 2500, 'success');
     sounds.playClick();
     
+    // Close modal
     const modal = $('modal-character-creation');
     if (modal) modal.close();
     
@@ -286,6 +291,7 @@ function selectCharacter(charId) {
   toast(`Selected ${char.name}`, 2000, 'success');
   sounds.playClick();
   
+  // Go to lobby
   enterLobby();
 }
 
@@ -400,6 +406,7 @@ function renderCharacterList() {
     `;
   }).join('');
   
+  // Event listeners for character cards
   list.querySelectorAll('.char-select-btn').forEach(btn => {
     btn.addEventListener('click', () => selectCharacter(btn.dataset.charId));
   });
@@ -424,9 +431,14 @@ function enterCharacterSelection() {
 let currentCharStats = getDefaultStats();
 
 function showCharStep(step) {
+  // Hide all steps
   document.querySelectorAll('.char-step').forEach(el => el.classList.remove('active'));
+  
+  // Show target step
   const target = $(`char-step-${step}`);
   if (target) target.classList.add('active');
+  
+  // Update stats display if on step 2
   if (step === 2) updateStatsDisplay();
 }
 
@@ -456,14 +468,20 @@ function updateStatsDisplay() {
 
 function adjustStat(stat, direction) {
   const newValue = currentCharStats[stat] + direction;
+  
+  // Validate range
   if (newValue < 8 || newValue > 15) return;
+  
+  // Check if we have enough points
   const oldCost = calculatePointBuyCost(currentCharStats);
   const testStats = { ...currentCharStats, [stat]: newValue };
   const newCost = calculatePointBuyCost(testStats);
+  
   if (newCost > 27) {
     toast('Not enough points remaining!', 2000, 'error');
     return;
   }
+  
   currentCharStats = testStats;
   updateStatsDisplay();
   sounds.playClick();
@@ -485,27 +503,14 @@ $('form-name')?.addEventListener('submit', async (e) => {
   }
   
   try {
-    console.log('1. Checking sb:', sb);
     if (!sb) throw new Error('The database client is unavailable. Check your internet connection and reload the page.');
-    
-    console.log('2. Calling login_or_create_profile for:', name);
     const { data: profile, error } = await sb.rpc('login_or_create_profile', { p_username: name });
-    console.log('3. Profile response:', profile, error);
-    
     if (error) throw error;
-    if (!profile) throw new Error('No profile returned.');
-    
-    console.log('4. Setting current user from profile');
     setCurrentUserFromProfile(profile);
-    
-    console.log('5. Playing click sound');
     sounds.playClick();
-    
-    console.log('6. Entering lobby');
     enterLobby();
-    
   } catch (err) {
-    console.error('Login error:', err);
+    console.error(err);
     if (errEl) errEl.textContent = err.message || 'Could not continue — try again.';
   } finally {
     if (submitBtn) {
@@ -542,8 +547,10 @@ async function tryResumeFromStorage() {
     try { currentCharacter = JSON.parse(savedRandomCharacter); } catch { currentCharacter = null; }
   }
   
+  // Check if there's a saved character
   const savedCharId = localStorage.getItem(CHAR_STORAGE_KEY);
   if (savedCharId) {
+    // Try to load characters and auto-select
     await loadCharacters();
     if (currentCharacter) {
       enterLobby();
@@ -554,6 +561,9 @@ async function tryResumeFromStorage() {
   enterLobby();
 }
 
+// Shared by both sign-out buttons (the one on the character-selection
+// screen and the one actually visible in the lobby topbar) — clears
+// everything and drops back to the "enter your name" screen.
 function signOut() {
   teardownSubscriptions();
   currentUser = null;
@@ -572,13 +582,19 @@ $('btn-logout')?.addEventListener('click', signOut);
 
 // ---------- Character Creation Events ----------
 $('btn-create-character')?.addEventListener('click', () => {
+  // Reset stats
   currentCharStats = getDefaultStats();
   updateStatsDisplay();
+  
+  // Clear form fields
   const nameInput = $('char-name');
   if (nameInput) nameInput.value = '';
   const questionInput = $('char-question');
   if (questionInput) questionInput.value = '';
+  
+  // Show step 1
   showCharStep(1);
+  
   const modal = $('modal-character-creation');
   if (modal) modal.showModal();
 });
@@ -588,6 +604,7 @@ $('btn-creation-close')?.addEventListener('click', () => {
   if (modal) modal.close();
 });
 
+// Stat adjustment buttons
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('.stat-btn');
   if (btn) {
@@ -631,6 +648,7 @@ function setCurrentUserFromProfile(profile) {
   
   const el = $('lobby-username');
   if (el) el.textContent = `${currentUser.username}`;
+  
   const charEl = $('char-username');
   if (charEl) charEl.textContent = `${currentUser.username}`;
 }
@@ -681,6 +699,11 @@ async function refreshLobbyList() {
   });
 }
 
+// Deletes a joinable table entirely — only shown to the table's
+// creator. Players and chat messages for that session are removed
+// automatically (they cascade-delete along with the session row);
+// this just also clears any profile that still points at it as its
+// "active session" so nobody's stuck with a stale Resume button.
 async function deleteSession(sessionId) {
   if (!confirm('Delete this table? This removes it for everyone and cannot be undone.')) return;
 
@@ -710,17 +733,21 @@ function enterLobby() {
 
   refreshLobbyList();
   
+  // FIX: Remove existing channel first
   if (lobbyChannel) {
     sb.removeChannel(lobbyChannel);
     lobbyChannel = null;
   }
   
+  // FIX: Create channel and add ALL listeners BEFORE subscribe
   lobbyChannel = sb.channel('lobby-sessions');
   
+  // Add all listeners FIRST
   lobbyChannel
     .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, refreshLobbyList)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, refreshLobbyList);
   
+  // THEN subscribe
   lobbyChannel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
       console.log('Lobby channel connected');
@@ -731,6 +758,8 @@ function enterLobby() {
 }
 
 // ---------- Session Management ----------
+// Same item pool and shape as supabase/functions/_shared/game.ts —
+// kept in sync manually since the client can't import that module.
 const ITEM_POOL = [
   { name: 'Healing Potion', type: 'heal', value: 10, description: 'Restores 10 health.' },
   { name: 'Field Rations', type: 'heal', value: 10, description: 'Restores 10 health.' },
@@ -761,6 +790,10 @@ function starterGearForClass(className) {
   return (loadouts[className] || loadouts.Fighter).map(([slot, name, specification], index) => ({ slot, name, specification, type: 'gear', id: `gear-${className}-${index}` }));
 }
 
+// The character's race/class/stats/background are randomized for
+// flavor, but the character's name always matches the username the
+// player signed in with — that's their identity at the table, not a
+// randomly-picked codename.
 function createRandomCharacter() {
   const stats = getDefaultStats();
 
@@ -795,7 +828,10 @@ function createRandomCharacter() {
 async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true } = {}) {
   currentCharacter = createRandomCharacter();
   localStorage.setItem(RANDOM_CHAR_STORAGE_KEY, JSON.stringify(currentCharacter));
-  
+  // Write the whole character to the shared players row (not just the
+  // name) so every other player at the table can see these stats too —
+  // previously this only ever lived in the creating player's own
+  // browser, which is why nobody else could see anyone's character sheet.
   const { error: playerError } = await sb.from('players').update({
     display_name: currentCharacter.name,
     race: currentCharacter.race,
@@ -810,6 +846,12 @@ async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true 
   }).eq('session_id', sessionId).eq('user_id', currentUser.uid);
   if (playerError) throw playerError;
 
+  // Only the table's creator should ever trigger kickoff. If every
+  // joiner also called this, several kickoff calls could race each
+  // other right as a table filled up, and a late one that still saw
+  // an empty story history would reset the boss back to full health
+  // even after real combat turns had already landed — this is what
+  // was actually causing the boss bar to silently snap back to 100%.
   if (!triggerKickoff) {
     await refreshGameState();
     return;
@@ -826,13 +868,6 @@ async function startTableWithRandomCharacter(sessionId, { triggerKickoff = true 
 }
 
 async function seedLocalOpening(sessionId) {
-  const { data: session } = await sb.from('sessions').select('story_narrative, story_choices').eq('id', sessionId).single();
-  
-  if (session && session.story_narrative && session.story_narrative !== 'The story is being written…' && session.story_choices?.length > 0) {
-    console.log('Story already exists, skipping local seed');
-    return;
-  }
-  
   const { error } = await sb.from('sessions').update({
     status: 'active',
     current_turn_index: 0,
@@ -932,13 +967,16 @@ $('btn-stats-close')?.addEventListener('click', () => {
   if (modal) modal.close();
 });
 
+// Close stats modal on backdrop click
 $('modal-character-stats')?.addEventListener('click', (e) => {
   if (e.target === e.currentTarget) {
     e.currentTarget.close();
   }
 });
 
-// ---------- All-Time Stats ----------
+// ---------- All-Time Stats (permanent, cross-session — lives on the
+// profile, not the per-session player row, since a new players row
+// is created every time someone joins a table) ----------
 async function openAllTimeStats() {
   const content = $('alltime-content');
   const modal = $('modal-alltime-stats');
@@ -992,53 +1030,21 @@ $('modal-alltime-stats')?.addEventListener('click', (e) => {
 
 // ---------- Game Screen ----------
 async function refreshGameState() {
-  if (refreshTimeout) {
-    clearTimeout(refreshTimeout);
-    refreshTimeout = null;
-  }
+  const [{ data: session }, { data: players }] = await Promise.all([
+    sb.from('sessions').select('*').eq('id', currentSessionId).single(),
+    sb.from('players').select('*').eq('session_id', currentSessionId).order('position_in_turn_order'),
+  ]);
+  if (!session) return;
   
-  refreshTimeout = setTimeout(async () => {
-    refreshTimeout = null;
-    
-    const [{ data: session }, { data: players }] = await Promise.all([
-      sb.from('sessions').select('*').eq('id', currentSessionId).single(),
-      sb.from('players').select('*').eq('session_id', currentSessionId).order('position_in_turn_order'),
-    ]);
-    if (!session) return;
-    
-    const storyHash = (session.story_narrative || '') + (session.story_choices || []).join(',');
-    if (storyHash === lastStoryVersion && session.status !== 'completed') {
-      return;
-    }
-    lastStoryVersion = storyHash;
-    
-    latestSession = session;
-    latestPlayers = players || [];
-    latestCharactersById = new Map();
-    
-    // Only regenerate image if the narrative actually changed
-    const narrativeChanged = (session.story_narrative || '') !== lastImageNarrative;
-    
-    renderGame();
-    
-    // Generate image only if narrative changed (not for intermediate player updates)
-    if (narrativeChanged && (latestSession.story_history || []).length > 0) {
-      lastImageNarrative = session.story_narrative || '';
-      const last = latestSession.story_history[latestSession.story_history.length - 1];
-      if (last) {
-        const sceneData = parseSceneFromStory(last, latestSession);
-        await generateSceneImage(sceneData);
-      }
-    } else if (narrativeChanged) {
-      // Update the marker even if there's no history to prevent re-attempts
-      lastImageNarrative = session.story_narrative || '';
-    }
-    
-    if (latestSession.status === 'completed') {
-      sounds.playWin();
-      showEndScreen(latestSession);
-    }
-  }, 100);
+  latestSession = session;
+  latestPlayers = players || [];
+  latestCharactersById = new Map();
+  renderGame();
+  
+  if (latestSession.status === 'completed') {
+    sounds.playWin();
+    showEndScreen(latestSession);
+  }
 }
 
 function renderPlayerStats(character) {
@@ -1054,6 +1060,9 @@ function renderPlayerStats(character) {
   }).join('')}</div>`;
 }
 
+// Spends one of the player's unallocated stat points (earned from
+// leveling up on souls) on a chosen ability score, capped at 20 to
+// match what the story engine is told the maximum is.
 async function allocateStatPoint(stat) {
   const me = latestPlayers.find(p => p.user_id === currentUser.uid);
   if (!me) return;
@@ -1092,6 +1101,11 @@ function renderPlayerGear(player) {
   `).join('')}</div>`;
 }
 
+// Kept identical (in spirit) to the ROOMS list in
+// supabase/functions/_shared/game.ts — the client can't import that
+// server-side file directly. Progression is unbounded now (the path
+// never ends), so room names cycle with a Roman-numeral suffix once
+// the party loops back around, same as the server's roomDisplayName().
 const ASHEN_ROOM_FLAVORS = [
   { name: 'Ash', flavor: 'A crumbling bonfire throws thin light across the ruins.' },
   { name: 'Gate', flavor: 'A broken gate watches over a road choked with ash.' },
@@ -1118,6 +1132,13 @@ function ashenRoomDisplayName(index) {
   return loop > 0 ? `${base} ${toRomanNumeral(loop + 1)}` : base;
 }
 
+// The map is a path now, not a grid of unrelated squares — nodes are
+// connected by a line, and it scrolls forward with the party instead
+// of being a fixed 9-square board. Only the CURRENT node ever shows
+// specific enemy info, and that info is read straight from live
+// session state (the same boss_name/boss_health shown above the
+// health bar) rather than an invented name, so the two can never say
+// two different things again.
 function renderAshenMap() {
   const map = $('mini-map');
   if (!map) return;
@@ -1126,6 +1147,8 @@ function renderAshenMap() {
     ? Math.max(0, latestSession.current_room_index)
     : 0;
 
+  // Show a short window of the path around where the party actually
+  // is: a couple of cleared rooms behind them, plus a few steps ahead.
   const windowStart = Math.max(0, currentIndex - 2);
   const windowEnd = currentIndex + 4;
   const indices = [];
@@ -1234,13 +1257,16 @@ function enterGame(sessionId) {
   refreshGameState();
   refreshChatMessages();
 
+  // FIX: Remove existing channel first
   if (gameChannel) {
     sb.removeChannel(gameChannel);
     gameChannel = null;
   }
   
+  // FIX: Create channel and add ALL listeners BEFORE subscribe
   gameChannel = sb.channel('game-' + sessionId);
   
+  // Add all listeners FIRST
   gameChannel
     .on('postgres_changes', { 
       event: '*', 
@@ -1261,6 +1287,7 @@ function enterGame(sessionId) {
       filter: `session_id=eq.${sessionId}` 
     }, refreshChatMessages);
   
+  // THEN subscribe
   gameChannel.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
       console.log('Game channel connected for:', sessionId);
@@ -1272,33 +1299,22 @@ function enterGame(sessionId) {
 
 // ---------- Retry Kickoff ----------
 async function retryKickoff() {
-  if (isGeneratingStory) {
-    toast('Story is already being generated...', 2000);
-    return;
-  }
-  
   const btn = $('btn-start-tale');
   if (btn) {
     btn.disabled = true;
     btn.textContent = 'Writing…';
   }
   
-  isGeneratingStory = true;
+  const { data, error } = await sb.functions.invoke('generate-story', {
+    body: { sessionId: currentSessionId, userId: currentUser.uid, kickoff: true },
+  });
   
-  try {
-    const { data, error } = await sb.functions.invoke('generate-story', {
-      body: { sessionId: currentSessionId, userId: currentUser.uid, kickoff: true },
-    });
-    
-    if (error) {
-      const message = await extractFunctionError(error, data);
-      console.error('Retry kickoff failed:', message, error);
-      await seedLocalOpening(currentSessionId);
-      await refreshGameState();
-      toast('Story engine unavailable. Local opening loaded.', 5000, 'error');
-    }
-  } finally {
-    isGeneratingStory = false;
+  if (error) {
+    const message = await extractFunctionError(error, data);
+    console.error('Retry kickoff failed:', message, error);
+    await seedLocalOpening(currentSessionId);
+    await refreshGameState();
+    toast('Story engine unavailable. Local opening loaded.', 5000, 'error');
     if (btn) {
       btn.disabled = false;
       btn.textContent = 'Start the tale';
@@ -1306,622 +1322,25 @@ async function retryKickoff() {
   }
 }
 
-// ---------- AI Image Generation ----------
-let isGeneratingImage = false;
-let lastImagePrompt = '';
+// ---------- Render Game ----------
+function renderGame() {
+  if (!latestSession) return;
+  renderAshenMap();
+  renderHallOfDead();
 
-async function generateSceneImage(sceneData) {
-  if (isGeneratingImage) return;
-  
-  const container = $('pixel-scene');
-  const loadingEl = $('pixel-loading');
-  const imageEl = $('pixel-image');
-  const canvasEl = $('pixel-canvas');
-  
-  if (!container || !sceneData) return;
-  
-  if (loadingEl) loadingEl.classList.remove('hidden');
-  if (imageEl) imageEl.classList.add('hidden');
-  
-  isGeneratingImage = true;
-  
-  try {
-    const prompt = buildImagePrompt(sceneData);
-    
-    if (prompt === lastImagePrompt && imageEl && !imageEl.classList.contains('hidden')) {
-      if (loadingEl) loadingEl.classList.add('hidden');
-      isGeneratingImage = false;
-      return;
-    }
-    
-    lastImagePrompt = prompt;
-    
-    // --- FIX: Use fetch with correct auth headers ---
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/generate-image`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: JSON.stringify({
-        prompt: prompt,
-        location: sceneData.location,
-        action: sceneData.action,
-        mood: sceneData.mood,
-      })
-    });
-    
-    const data = await response.json();
-    
-    if (!response.ok) throw new Error(data.error || 'Function returned error');
-    
-    if (data.imageUrl) {
-      // Load the image
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      
-      const imageLoadPromise = new Promise((resolve, reject) => {
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('Image failed to load'));
-        setTimeout(() => reject(new Error('Image load timeout')), 15000);
-      });
-      
-      img.src = data.imageUrl;
-      await imageLoadPromise;
-      
-      if (imageEl) {
-        imageEl.src = data.imageUrl;
-        imageEl.classList.remove('hidden');
-        imageEl.style.opacity = '0';
-        await new Promise(resolve => setTimeout(resolve, 50));
-        imageEl.style.opacity = '1';
-      }
-      if (canvasEl) canvasEl.classList.add('hidden');
-      
-    } else {
-      throw new Error('No image URL returned');
-    }
-    
-  } catch (error) {
-    console.warn('Image generation failed:', error);
-    // Use fallback pixel renderer
-    if (canvasEl) {
-      canvasEl.classList.remove('hidden');
-      renderFallbackPixelScene(canvasEl, sceneData);
-    }
-    if (imageEl) imageEl.classList.add('hidden');
-    
-    const resultEl = $('pixel-result');
-    if (resultEl) {
-      resultEl.textContent = '✦ Pixel render';
-      resultEl.className = 'pixel-result';
-    }
-  }
-  
-  if (loadingEl) loadingEl.classList.add('hidden');
-  isGeneratingImage = false;
-}
-
-function buildImagePrompt(sceneData) {
-  const { location, action, mood, actor, target } = sceneData;
-  
-  // Short, punchy prompt - under 60 characters
-  let prompt = '';
-  
-  // Base scene
-  const locationWords = {
-    bonfire: 'campfire in ruins',
-    gate: 'broken stone gate',
-    forest: 'dark twisted forest',
-    shrine: 'ancient shrine',
-    crypt: 'dark stone crypt',
-    tower: 'shattered tower',
-    marsh: 'misty marsh',
-    keep: 'ruined keep',
-    ash: 'ash wasteland'
-  };
-  const base = locationWords[location] || 'dark fantasy wasteland';
-  
-  // Action (short)
-  const actionWords = {
-    attack: 'warrior fighting monster',
-    hit: 'warrior striking enemy',
-    heal: 'warrior being healed',
-    search: 'warrior searching ashes',
-    stealth: 'warrior hiding in shadows',
-    neutral: 'warrior standing'
-  };
-  const actionText = actionWords[action] || 'warrior';
-  
-  // Build short prompt
-  prompt = `${actionText} at ${base}`;
-  
-  // Add mood in 2-3 words
-  if (mood === 'combat') prompt += ', battle scene';
-  else if (mood === 'dark') prompt += ', dark atmosphere';
-  else if (mood === 'fire') prompt += ', firelight glow';
-  
-  return prompt;
-}
-
-// ---------- Fallback Pixel Art Renderer (canvas) ----------
-function renderFallbackPixelScene(canvas, sceneData) {
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-  const p = 4; // Smaller pixel size = more detail!
-  
-  ctx.imageSmoothingEnabled = false;
-  
-  // Clear
-  ctx.fillStyle = '#0a0806';
-  ctx.fillRect(0, 0, w, h);
-  
-  // ----- SKY -----
-  const colors = {
-    dark: ['#1a1010', '#0a0806'],
-    fire: ['#2a1a0a', '#0a0806'],
-    combat: ['#1a0a0a', '#0a0604'],
-    neutral: ['#1a1814', '#0a0806'],
-    ash: ['#2a2820', '#1a1814'],
-    gate: ['#1a1410', '#0a0806'],
-    crypt: ['#0a0808', '#050303'],
-    shrine: ['#2a1a0a', '#0a0806'],
-    forest: ['#1a1a10', '#0a0a06'],
-    tower: ['#1a0a0a', '#0a0505']
-  };
-  const sky = colors[sceneData.location] || colors.neutral;
-  for (let y = 0; y < h * 0.6; y += p) {
-    const t = y / (h * 0.6);
-    const r = parseInt(sky[0].slice(1,3), 16) + (parseInt(sky[1].slice(1,3), 16) - parseInt(sky[0].slice(1,3), 16)) * t;
-    const g = parseInt(sky[0].slice(3,5), 16) + (parseInt(sky[1].slice(3,5), 16) - parseInt(sky[0].slice(3,5), 16)) * t;
-    const b = parseInt(sky[0].slice(5,7), 16) + (parseInt(sky[1].slice(5,7), 16) - parseInt(sky[0].slice(5,7), 16)) * t;
-    ctx.fillStyle = `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
-    ctx.fillRect(0, y, w, p);
-  }
-  
-  // ----- STARS / EMBERS -----
-  const numParticles = sceneData.location === 'ash' ? 15 : 8;
-  for (let i = 0; i < numParticles; i++) {
-    const x = Math.random() * w;
-    const y = Math.random() * (h * 0.4);
-    const size = Math.random() * 2 + 1;
-    const alpha = Math.random() * 0.5 + 0.2;
-    ctx.fillStyle = `rgba(255, 200, 100, ${alpha})`;
-    ctx.fillRect(x, y, size, size);
-  }
-  
-  // ----- MOON / CELESTIAL -----
-  if (sceneData.location !== 'crypt' && sceneData.location !== 'tower') {
-    const moonX = w * 0.8;
-    const moonY = h * 0.15;
-    ctx.fillStyle = 'rgba(180, 170, 150, 0.15)';
-    for (let r = 20; r > 0; r -= 2) {
-      ctx.beginPath();
-      ctx.arc(moonX, moonY, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.fillStyle = 'rgba(200, 190, 170, 0.2)';
-    ctx.beginPath();
-    ctx.arc(moonX, moonY, 16, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  
-  // ----- GROUND -----
-  const groundY = h * 0.62;
-  const groundColors = ['#1a1510', '#1c1712', '#18130e', '#1e1914'];
-  for (let y = groundY; y < h; y += p) {
-    const colorIndex = Math.floor(((y - groundY) / (h - groundY)) * groundColors.length);
-    ctx.fillStyle = groundColors[Math.min(colorIndex, groundColors.length - 1)];
-    ctx.fillRect(0, y, w, p);
-  }
-  
-  // ----- GROUND TEXTURE -----
-  for (let i = 0; i < 80; i++) {
-    const x = Math.random() * w;
-    const y = groundY + Math.random() * (h - groundY);
-    const size = Math.random() * 3 + 1;
-    const shade = Math.random() > 0.5 ? '#2a2018' : '#0a0806';
-    ctx.fillStyle = shade;
-    ctx.fillRect(x, y, size, size);
-  }
-  
-  // ----- BACKGROUND ENVIRONMENT -----
-  drawEnvironment(ctx, w, h, groundY, p, sceneData);
-  
-  // ----- CHARACTERS -----
-  drawCharacter(ctx, w * 0.35, groundY - 10, p, '#f0c477', 'player', sceneData);
-  
-  if (sceneData.action === 'attack' || sceneData.action === 'hit' || sceneData.target) {
-    drawCharacter(ctx, w * 0.65, groundY - 10, p, '#e17055', 'enemy', sceneData);
-  }
-  
-  // ----- EFFECTS -----
-  if (sceneData.action === 'attack' || sceneData.action === 'hit') {
-    drawCombatEffects(ctx, w * 0.65, groundY - 30, p);
-  }
-  
-  if (sceneData.action === 'search') {
-    drawSearchEffects(ctx, w * 0.35, groundY - 5, p);
-  }
-  
-  // ----- FOREGROUND DETAILS -----
-  drawForeground(ctx, w, h, groundY, p, sceneData);
-  
-  // ----- BONFIRE (always present) -----
-  drawBonfire(ctx, w * 0.5, groundY + 15, p);
-}
-
-// ----- HELPER FUNCTIONS -----
-
-function drawEnvironment(ctx, w, h, groundY, p, sceneData) {
-  switch(sceneData.location) {
-    case 'gate':
-      // Broken gate
-      ctx.fillStyle = '#2a221a';
-      ctx.fillRect(10, groundY - 60, 8, 60);
-      ctx.fillRect(w - 18, groundY - 50, 8, 50);
-      // Gate arch
-      ctx.fillStyle = '#3a322a';
-      ctx.fillRect(14, groundY - 70, w - 28, 6);
-      // Broken top
-      ctx.fillStyle = '#1a1410';
-      ctx.fillRect(30, groundY - 68, 12, 4);
-      ctx.fillRect(w - 42, groundY - 58, 12, 4);
-      break;
-      
-    case 'forest':
-      // Dark trees
-      for (let i = 0; i < 6; i++) {
-        const x = 20 + i * (w / 6) + Math.random() * 20;
-        const treeH = 40 + Math.random() * 30;
-        ctx.fillStyle = '#1a2010';
-        ctx.fillRect(x, groundY - treeH, 6, treeH);
-        ctx.fillStyle = '#0a1008';
-        ctx.fillRect(x - 12, groundY - treeH - 8, 30, 12);
-        // Dead branches
-        ctx.fillStyle = '#1a1608';
-        ctx.fillRect(x - 16, groundY - treeH + 10, 10, 3);
-        ctx.fillRect(x + 12, groundY - treeH + 20, 10, 3);
-      }
-      break;
-      
-    case 'crypt':
-      // Gravestones
-      for (let i = 0; i < 4; i++) {
-        const x = 30 + i * (w / 4);
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(x, groundY - 20, 16, 20);
-        ctx.fillStyle = '#222222';
-        ctx.fillRect(x + 2, groundY - 16, 12, 4);
-        // Crack
-        ctx.fillStyle = '#0a0a0a';
-        ctx.fillRect(x + 6, groundY - 12, 2, 8);
-      }
-      break;
-      
-    case 'tower':
-      // Broken tower
-      ctx.fillStyle = '#1a1612';
-      ctx.fillRect(w/2 - 30, groundY - 80, 60, 80);
-      ctx.fillStyle = '#2a221a';
-      ctx.fillRect(w/2 - 26, groundY - 76, 52, 10);
-      // Broken top
-      ctx.fillStyle = '#0a0806';
-      ctx.fillRect(w/2 - 20, groundY - 84, 16, 8);
-      ctx.fillRect(w/2 + 4, groundY - 78, 12, 6);
-      // Window
-      ctx.fillStyle = '#0a0a0a';
-      ctx.fillRect(w/2 - 8, groundY - 44, 16, 20);
-      ctx.fillStyle = 'rgba(255, 200, 100, 0.1)';
-      ctx.fillRect(w/2 - 6, groundY - 42, 12, 16);
-      break;
-  }
-}
-
-function drawCharacter(ctx, x, y, p, color, type, sceneData) {
-  // Body
-  ctx.fillStyle = color;
-  ctx.fillRect(x - 8, y - 28, 16, 28);
-  
-  // Head
-  ctx.fillStyle = '#d4a87a';
-  ctx.fillRect(x - 7, y - 36, 14, 10);
-  
-  // Hair
-  const hairColor = type === 'player' ? '#6a4a2a' : '#1a0a0a';
-  ctx.fillStyle = hairColor;
-  ctx.fillRect(x - 8, y - 40, 16, 6);
-  ctx.fillRect(x - 10, y - 36, 4, 4);
-  ctx.fillRect(x + 6, y - 36, 4, 4);
-  
-  // Eyes
-  const eyeColor = type === 'player' ? '#aabbcc' : '#ff6b35';
-  ctx.fillStyle = eyeColor;
-  ctx.fillRect(x - 5, y - 34, 3, 3);
-  ctx.fillRect(x + 2, y - 34, 3, 3);
-  
-  // Armor/Clothing details
-  if (type === 'player') {
-    ctx.fillStyle = '#8a7a5a';
-    ctx.fillRect(x - 6, y - 22, 12, 4);
-    ctx.fillRect(x - 8, y - 14, 16, 4);
-    // Belt
-    ctx.fillStyle = '#5a4a2a';
-    ctx.fillRect(x - 8, y - 6, 16, 3);
-  } else {
-    // Enemy armor details
-    ctx.fillStyle = '#4a3a2a';
-    ctx.fillRect(x - 8, y - 24, 16, 4);
-    ctx.fillRect(x - 10, y - 14, 20, 4);
-    // Enemy glowing core
-    ctx.fillStyle = 'rgba(255, 100, 30, 0.3)';
-    ctx.fillRect(x - 4, y - 20, 8, 8);
-  }
-  
-  // Legs
-  ctx.fillStyle = type === 'player' ? '#4a3a2a' : '#3a2a1a';
-  ctx.fillRect(x - 6, y, 5, 12);
-  ctx.fillRect(x + 1, y, 5, 12);
-  
-  // Boots
-  ctx.fillStyle = type === 'player' ? '#3a2a1a' : '#2a1a0a';
-  ctx.fillRect(x - 8, y + 10, 7, 4);
-  ctx.fillRect(x + 1, y + 10, 7, 4);
-  
-  // Arms
-  ctx.fillStyle = '#d4a87a';
-  if (type === 'player') {
-    // Player arms - one holding weapon
-    ctx.fillRect(x - 14, y - 20, 6, 8);
-    ctx.fillRect(x + 8, y - 20, 6, 8);
-    // Weapon
-    ctx.fillStyle = '#b8a88a';
-    ctx.fillRect(x + 12, y - 32, 3, 20);
-    ctx.fillStyle = '#8a7a6a';
-    ctx.fillRect(x + 10, y - 34, 7, 4);
-    ctx.fillRect(x + 11, y - 12, 5, 4);
-  } else {
-    // Enemy arms - with blade
-    ctx.fillRect(x - 16, y - 22, 6, 10);
-    ctx.fillRect(x + 10, y - 22, 6, 10);
-    // Enemy blade
-    ctx.fillStyle = '#6a5a4a';
-    ctx.fillRect(x + 16, y - 34, 4, 24);
-    ctx.fillStyle = '#8a7a6a';
-    ctx.fillRect(x + 14, y - 38, 8, 6);
-  }
-  
-  // Cape (player only)
-  if (type === 'player') {
-    ctx.fillStyle = 'rgba(100, 60, 40, 0.5)';
-    ctx.fillRect(x - 12, y - 10, 8, 16);
-    ctx.fillRect(x + 4, y - 10, 8, 16);
-  }
-}
-
-function drawCombatEffects(ctx, x, y, p) {
-  // Sword clash sparks
-  const colors = ['#ffd700', '#ff8c00', '#ff4500', '#ffffff'];
-  for (let i = 0; i < 25; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = Math.random() * 35 + 5;
-    const size = Math.random() * 4 + 1;
-    const color = colors[Math.floor(Math.random() * colors.length)];
-    ctx.fillStyle = color;
-    ctx.globalAlpha = Math.random() * 0.8 + 0.2;
-    ctx.fillRect(
-      x + Math.cos(angle) * dist,
-      y + Math.sin(angle) * dist,
-      size, size
-    );
-  }
-  ctx.globalAlpha = 1;
-  
-  // Impact flash
-  ctx.fillStyle = 'rgba(255, 255, 200, 0.15)';
-  ctx.beginPath();
-  ctx.arc(x, y, 20, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-function drawSearchEffects(ctx, x, y, p) {
-  // Sparkles around search area
-  for (let i = 0; i < 12; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = Math.random() * 20 + 5;
-    const size = Math.random() * 3 + 1;
-    ctx.fillStyle = `rgba(200, 230, 255, ${Math.random() * 0.5 + 0.1})`;
-    ctx.fillRect(
-      x + Math.cos(angle) * dist,
-      y + Math.sin(angle) * dist - 10,
-      size, size
-    );
-  }
-  
-  // Glow ring
-  ctx.fillStyle = 'rgba(200, 230, 255, 0.05)';
-  ctx.beginPath();
-  ctx.arc(x, y - 10, 25, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-function drawForeground(ctx, w, h, groundY, p, sceneData) {
-  // Grass blades
-  for (let i = 0; i < 40; i++) {
-    const x = Math.random() * w;
-    const y = groundY - Math.random() * 6;
-    const height = Math.random() * 6 + 2;
-    ctx.fillStyle = Math.random() > 0.5 ? '#1a2a10' : '#2a1a10';
-    ctx.fillRect(x, y, 1, height);
-  }
-  
-  // Rocks
-  for (let i = 0; i < 6; i++) {
-    const x = Math.random() * w;
-    const y = groundY + Math.random() * 20 + 10;
-    const size = Math.random() * 8 + 4;
-    ctx.fillStyle = '#2a221a';
-    ctx.fillRect(x, y, size, size * 0.6);
-    ctx.fillStyle = '#3a322a';
-    ctx.fillRect(x + 2, y + 2, size * 0.4, size * 0.3);
-  }
-}
-
-function drawBonfire(ctx, x, y, p) {
-  // Wood logs
-  ctx.fillStyle = '#3a2a1a';
-  ctx.fillRect(x - 20, y - 4, 40, 8);
-  ctx.fillStyle = '#4a3a2a';
-  ctx.fillRect(x - 24, y + 2, 48, 6);
-  ctx.fillRect(x - 16, y - 8, 32, 6);
-  
-  // Fire base glow
-  ctx.fillStyle = 'rgba(255, 150, 50, 0.05)';
-  ctx.beginPath();
-  ctx.arc(x, y - 10, 40, 0, Math.PI * 2);
-  ctx.fill();
-  
-  // Main fire
-  const flicker = Math.random() * 0.2 + 0.8;
-  ctx.fillStyle = `rgba(255, 180, 50, ${0.5 * flicker})`;
-  ctx.fillRect(x - 14, y - 30 * flicker, 28, 26);
-  ctx.fillStyle = `rgba(255, 100, 20, ${0.3 * flicker})`;
-  ctx.fillRect(x - 8, y - 40 * flicker, 16, 22);
-  ctx.fillStyle = `rgba(255, 60, 10, ${0.2 * flicker})`;
-  ctx.fillRect(x - 4, y - 48 * flicker, 8, 16);
-  
-  // Embers
-  for (let i = 0; i < 10; i++) {
-    const ex = x + (Math.random() - 0.5) * 30;
-    const ey = y - 10 - Math.random() * 35;
-    const size = Math.random() * 3 + 1;
-    const alpha = Math.random() * 0.5 + 0.2;
-    ctx.fillStyle = `rgba(255, 200, 100, ${alpha})`;
-    ctx.fillRect(ex, ey, size, size);
-  }
-  
-  // Light cone (on ground)
-  ctx.fillStyle = 'rgba(255, 150, 50, 0.03)';
-  ctx.fillRect(x - 50, y + 4, 100, 16);
-}
-
-// ---------- Pixel Scene Functions ----------
-function parseSceneFromStory(last, session) {
-  const choice = (last.choice || '').toLowerCase();
-  const player = last.player || 'Someone';
-  const enemyName = session.boss_name || 'enemy';
-  
-  let location = 'ash';
-  if (session.current_room_index !== undefined) {
-    const roomIndex = session.current_room_index % 8;
-    const rooms = ['bonfire', 'gate', 'forest', 'shrine', 'crypt', 'tower', 'marsh', 'keep'];
-    location = rooms[roomIndex] || 'ash';
-  }
-  
-  let action = 'neutral';
-  let target = null;
-  
-  if (choice.includes('attack') || choice.includes('strike') || choice.includes('fight')) {
-    action = 'attack';
-    target = enemyName;
-  } else if (choice.includes('heal') || choice.includes('rest')) {
-    action = 'heal';
-  } else if (choice.includes('search') || choice.includes('investigate')) {
-    action = 'search';
-  } else if (choice.includes('sneak') || choice.includes('stealth') || choice.includes('hide')) {
-    action = 'stealth';
-  } else if (last.impact !== undefined && last.impact < 0) {
-    action = 'hit';
-    target = player;
-  } else if (last.impact !== undefined && last.impact > 0) {
-    action = 'heal';
-  }
-  
-  let mood = 'neutral';
-  if (action === 'attack' || action === 'hit') {
-    mood = 'combat';
-  } else if (location === 'bonfire') {
-    mood = 'fire';
-  } else if (location === 'crypt' || location === 'tower') {
-    mood = 'dark';
-  }
-  
-  return {
-    location,
-    action,
-    mood,
-    actor: player,
-    target: target || null,
-    allies: session.players ? session.players.filter(p => p.is_alive).map(p => p.display_name) : [],
-  };
-}
-
-function updatePixelOverlay(last) {
-  const playerEl = $('pixel-player');
-  const actionEl = $('pixel-action');
-  const targetEl = $('pixel-target');
-  const rollEl = $('pixel-roll');
-  const resultEl = $('pixel-result');
-  
-  if (playerEl) playerEl.textContent = last.player || 'Someone';
-  if (actionEl) actionEl.textContent = last.choice || 'acted';
-  if (targetEl) {
-    const enemyName = latestSession?.boss_name || 'enemy';
-    if (last.impact !== undefined && last.impact < 0) {
-      targetEl.textContent = `→ ${enemyName}`;
-    } else {
-      targetEl.textContent = '';
-    }
-  }
-  
-  if (rollEl) {
-    if (last.roll) {
-      rollEl.textContent = `🎲 ${last.roll}`;
-      rollEl.style.display = 'inline-block';
-    } else {
-      rollEl.style.display = 'none';
-    }
-  }
-  
-  if (resultEl) {
-    if (last.impact !== undefined && last.impact !== null) {
-      if (last.impact < 0) {
-        resultEl.textContent = `💔 ${Math.abs(last.impact)} HP`;
-        resultEl.className = 'pixel-result damage';
-      } else if (last.impact > 0) {
-        resultEl.textContent = `💚 +${last.impact} HP`;
-        resultEl.className = 'pixel-result heal';
-      } else {
-        resultEl.textContent = '✦ 0 HP';
-        resultEl.className = 'pixel-result';
-      }
-    } else {
-      resultEl.textContent = '';
-    }
-  }
-}
-
-async function updatePixelScene() {
-  const container = $('pixel-scene');
-  if (!container || !latestSession) return;
-  
-  const history = latestSession.story_history || [];
-  if (history.length === 0) {
-    container.classList.add('hidden');
-    return;
-  }
-  
-  const last = history[history.length - 1];
-  container.classList.remove('hidden');
-  
-  updatePixelOverlay(last);
-  
+  // Rooms 0 (Ash) and 3 (Shrine) in the cycle are safe zones — kept
+  // in sync with the safeZone flags on ROOMS in
+  // supabase/functions/_shared/game.ts (the client can't import that
+  // file directly). When the party is in one, there's no enemy at
+  // all, so the boss/monster health bar is replaced by a calm banner
+  // instead of showing stale or zeroed-out combat info.
   const SAFE_ZONE_ROOM_SLOTS = new Set([0, 3]);
   const currentRoomIdx = Number.isInteger(latestSession?.current_room_index) ? latestSession.current_room_index : 0;
   const inSafeZoneNow = SAFE_ZONE_ROOM_SLOTS.has(currentRoomIdx % 8);
 
+  // Enemy Health Bar (regular monster or boss — same bar either way,
+  // but bosses get the dramatic phase framing and a badge; regular
+  // monsters get a plainer label so they don't feel falsely epic).
   const bossNameEl = $('boss-name');
   const bossHealthNumEl = $('boss-health-num');
   const bossHealthFillEl = $('boss-health-fill');
@@ -1965,6 +1384,9 @@ async function updatePixelScene() {
       const maxHealth = Math.max(1, Number(p.max_health || 100));
       const pct = Math.max(0, Math.min(100, (p.health / maxHealth) * 100));
       const color = pct > 55 ? 'var(--health-full)' : pct > 25 ? 'var(--health-mid)' : 'var(--health-low)';
+      // Character stats live directly on the player row now (race,
+      // class, and the six ability scores), so this works the same
+      // way for every player at the table, not just yourself.
       const character = {
         name: p.display_name,
         race: p.race,
@@ -2056,9 +1478,8 @@ async function updatePixelScene() {
   const choices = latestSession.story_choices || [];
   const narrative = (latestSession.story_narrative || '').trim();
   const isStuck = latestSession.status === 'active' &&
-  !choices.length &&
-  (narrative === 'The story is being written…' || narrative.startsWith('A new tale begins')) &&
-  !isGeneratingStory;
+    !choices.length &&
+    (narrative === 'The story is being written…' || narrative.startsWith('A new tale begins'));
 
   if (turnEl) {
     if (latestSession.status === 'completed') {
@@ -2077,41 +1498,64 @@ async function updatePixelScene() {
   if (storyTextEl) storyTextEl.textContent = latestSession.story_narrative || '';
 
   // Choices
-const isMyTurn = currentTurnUid === currentUser.uid && latestSession.status === 'active';
-const alivePlayers = latestPlayers.filter(player => player.is_alive);
-const iAmAlive = alivePlayers.some(player => player.user_id === currentUser.uid);
-const voteState = (latestSession.vote_state && latestSession.vote_state.active) ? latestSession.vote_state : null;
-const choicesEl = $('choices');
+  // Default is turn-based — only the acting player can choose, same
+  // as before voting was added. If they're not sure, they can hit
+  // "Put it to a vote" instead of picking directly, which is the
+  // *only* way a vote ever starts — it's an escape hatch, not the
+  // default flow for every single choice.
+  const isMyTurn = currentTurnUid === currentUser.uid && latestSession.status === 'active';
+  const alivePlayers = latestPlayers.filter(player => player.is_alive);
+  const iAmAlive = alivePlayers.some(player => player.user_id === currentUser.uid);
+  const voteState = (latestSession.vote_state && latestSession.vote_state.active) ? latestSession.vote_state : null;
+  const choicesEl = $('choices');
 
-if (choicesEl) {
-  if (isStuck) {
-    choicesEl.innerHTML = `<button id="btn-start-tale" class="choice-btn">Start the tale</button>`;
-    $('btn-start-tale')?.addEventListener('click', retryKickoff);
-  } else if (!choices.length || latestSession.status !== 'active') {
-    choicesEl.innerHTML = '';
-  } else if (voteState) {
-    // ... vote rendering
-  } else {
-    choicesEl.innerHTML = choices.map((c, i) => `
-      <button class="choice-btn" data-choice="${i}" ${isMyTurn ? '' : 'disabled'}>
-        ${escapeHtml(c)}
-      </button>
-    `).join('') + (isMyTurn ? `
-      <button class="choice-btn choice-btn-vote" type="button" data-put-to-vote>Not sure? Put it to a vote</button>
-    ` : '');
-
-    choicesEl.querySelectorAll('[data-choice]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        sounds.playClick();
-        submitChoice(Number(btn.dataset.choice));
+  if (choicesEl) {
+    if (isStuck) {
+      choicesEl.innerHTML = `<button id="btn-start-tale" class="choice-btn">Start the tale</button>`;
+      $('btn-start-tale')?.addEventListener('click', retryKickoff);
+    } else if (!choices.length || latestSession.status !== 'active') {
+      choicesEl.innerHTML = '';
+    } else if (voteState) {
+      // A vote is in progress — everyone alive can vote on the same
+      // three choices, one vote each, live counts shown as they come in.
+      const votes = voteState.votes || {};
+      const hasVoted = Object.prototype.hasOwnProperty.call(votes, currentUser.uid);
+      choicesEl.innerHTML = choices.map((c, i) => {
+        const count = Object.values(votes).filter(v => v === i).length;
+        return `
+          <button class="choice-btn" data-vote="${i}" ${(hasVoted || !iAmAlive) ? 'disabled' : ''}>
+            ${escapeHtml(c)}
+            <span class="vote-count">${count} vote${count === 1 ? '' : 's'}</span>
+          </button>
+        `;
+      }).join('');
+      choicesEl.querySelectorAll('[data-vote]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          sounds.playClick();
+          castVote(Number(btn.dataset.vote));
+        });
       });
-    });
-    choicesEl.querySelector('[data-put-to-vote]')?.addEventListener('click', () => {
-      sounds.playClick();
-      startVote();
-    });
+    } else {
+      choicesEl.innerHTML = choices.map((c, i) => `
+        <button class="choice-btn" data-choice="${i}" ${isMyTurn ? '' : 'disabled'}>
+          ${escapeHtml(c)}
+        </button>
+      `).join('') + (isMyTurn ? `
+        <button class="choice-btn choice-btn-vote" type="button" data-put-to-vote>Not sure? Put it to a vote</button>
+      ` : '');
+
+      choicesEl.querySelectorAll('[data-choice]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          sounds.playClick();
+          submitChoice(Number(btn.dataset.choice));
+        });
+      });
+      choicesEl.querySelector('[data-put-to-vote]')?.addEventListener('click', () => {
+        sounds.playClick();
+        startVote();
+      });
+    }
   }
-}
 
   // Status
   const statusEl = $('story-status');
@@ -2128,7 +1572,9 @@ if (choicesEl) {
     }
   }
 
-  // Inventory
+  // Inventory — only shown to the acting player, on their own turn,
+  // so items can only ever be used as your one action for the turn
+  // (same rule as picking a story choice).
   const inventoryPanel = $('inventory-panel');
   const inventoryList = $('inventory-list');
   if (inventoryPanel && inventoryList) {
@@ -2161,11 +1607,6 @@ if (choicesEl) {
 
 // ---------- Use Item ----------
 async function useItem(itemId) {
-  if (isGeneratingStory) {
-    toast('Story is already being generated...', 2000);
-    return;
-  }
-  
   const choicesEl = $('choices');
   const inventoryList = $('inventory-list');
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
@@ -2173,54 +1614,41 @@ async function useItem(itemId) {
 
   const statusEl = $('story-status');
   if (statusEl) statusEl.textContent = 'Using item…';
-  
-  isGeneratingStory = true;
 
-  try {
-    const { data, error } = await sb.functions.invoke('generate-story', {
-      body: { sessionId: currentSessionId, userId: currentUser.uid, itemId },
-    });
+  const { data, error } = await sb.functions.invoke('generate-story', {
+    body: { sessionId: currentSessionId, userId: currentUser.uid, itemId },
+  });
 
-    if (error) {
-      const message = await extractFunctionError(error, data);
-      console.error('useItem failed:', message, error);
-      if (statusEl) statusEl.textContent = 'Could not use that item — please try again.';
-      toast('Item use failed: ' + message, 4000, 'error');
-    }
-  } finally {
-    isGeneratingStory = false;
+  if (error) {
+    const message = await extractFunctionError(error, data);
+    console.error('useItem failed:', message, error);
+    if (statusEl) statusEl.textContent = 'Could not use that item — please try again.';
+    toast('Item use failed: ' + message, 4000, 'error');
   }
 }
 
-// ---------- Submit Choice ----------
+// ---------- Submit Choice (turn-based — only the acting player calls this) ----------
 async function submitChoice(choiceIndex) {
-  if (isGeneratingStory) {
-    toast('Story is already being generated...', 2000);
-    return;
-  }
-  
   const choicesEl = $('choices');
   const statusEl = $('story-status');
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
   if (statusEl) statusEl.textContent = 'The storyteller is weaving…';
-  
-  isGeneratingStory = true;
-  
-  try {
-    const { data, error } = await sb.functions.invoke('generate-story', {
-      body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
-    });
-    if (error) {
-      console.error('submitChoice failed:', error);
-      if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
-      toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
-    }
-  } finally {
-    isGeneratingStory = false;
+
+  const { data, error } = await sb.functions.invoke('generate-story', {
+    body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex },
+  });
+  if (error) {
+    console.error('submitChoice failed:', error);
+    if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
+    toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
   }
 }
 
-// ---------- Party Vote ----------
+// ---------- Party vote (opt-in escape hatch, not the default flow) ----------
+// Only the current-turn player can trigger this — everyone else just
+// waits for their turn normally. Once started, every alive player
+// gets one vote on the same three choices; the majority pick gets
+// submitted the moment the last vote comes in.
 async function startVote() {
   const { error } = await sb.from('sessions')
     .update({ vote_state: { active: true, votes: {} } })
@@ -2232,17 +1660,14 @@ async function startVote() {
 }
 
 async function castVote(choiceIndex) {
-  if (isGeneratingStory) {
-    toast('Story is already being generated...', 2000);
-    return;
-  }
-  
   const current = (latestSession.vote_state && latestSession.vote_state.active)
     ? latestSession.vote_state
     : { active: true, votes: {} };
   const votes = { ...current.votes, [currentUser.uid]: choiceIndex };
   const alivePlayers = latestPlayers.filter(p => p.is_alive);
 
+  // Show the updated count immediately instead of waiting on the
+  // realtime round-trip back from the database.
   latestSession.vote_state = { active: true, votes };
   renderGame();
 
@@ -2257,6 +1682,12 @@ async function castVote(choiceIndex) {
 
   if (Object.keys(votes).length < alivePlayers.length) return;
 
+  // Everyone alive has voted — tally and submit the majority choice.
+  // (If two people happen to cast the very last vote at the exact
+  // same instant, both browsers could reach this point together and
+  // both call generate-story — a rare, low-stakes race that existed
+  // in the original voting code too; not worth a distributed lock for
+  // a casual game.)
   const tally = {};
   Object.values(votes).forEach(v => { tally[v] = (tally[v] || 0) + 1; });
   const winner = Number(Object.keys(tally).reduce((best, key) =>
@@ -2266,20 +1697,14 @@ async function castVote(choiceIndex) {
   const statusEl = $('story-status');
   if (statusEl) statusEl.textContent = 'The party has agreed. The storyteller is weaving…';
   if (choicesEl) choicesEl.querySelectorAll('button').forEach(b => b.disabled = true);
-  
-  isGeneratingStory = true;
 
-  try {
-    const { data, error } = await sb.functions.invoke('generate-story', {
-      body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex: winner },
-    });
-    if (error) {
-      console.error('submitChoice (vote) failed:', error);
-      if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
-      toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
-    }
-  } finally {
-    isGeneratingStory = false;
+  const { data, error } = await sb.functions.invoke('generate-story', {
+    body: { sessionId: currentSessionId, userId: currentUser.uid, choiceIndex: winner },
+  });
+  if (error) {
+    console.error('submitChoice (vote) failed:', error);
+    if (statusEl) statusEl.textContent = 'The story engine faltered — please try again.';
+    toast('Story generation failed: ' + (error.message || 'Unknown error'), 4000, 'error');
   }
 }
 
@@ -2367,30 +1792,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ---------- Keyboard Shortcuts ----------
 document.addEventListener('keydown', (e) => {
+  // Number keys 1-3 for choices
   if (e.key >= '1' && e.key <= '3') {
     const choiceBtn = document.querySelector(`.choice-btn[data-choice="${parseInt(e.key) - 1}"]`);
     if (choiceBtn && !choiceBtn.disabled) {
       choiceBtn.click();
     }
   }
-});
-
-// ---------- Replay Pixel Scene ----------
-$('btn-replay-pixel')?.addEventListener('click', () => {
-  const container = $('pixel-scene');
-  if (!container) return;
-  
-  container.classList.remove('flash');
-  void container.offsetWidth;
-  container.classList.add('flash');
-  
-  sounds.playClick();
-  
-  const history = latestSession?.story_history || [];
-  if (history.length > 0) {
-    const sceneData = parseSceneFromStory(history[history.length - 1], latestSession);
-    generateSceneImage(sceneData);
-  }
-  
-  toast('Replaying scene...', 1500);
 });
